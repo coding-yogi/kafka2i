@@ -1,5 +1,5 @@
 
-use rdkafka::{metadata::{Metadata as KafkaMetadata, MetadataTopic, MetadataPartition}, consumer::ConsumerGroupMetadata};
+use rdkafka::{metadata::{Metadata as KafkaMetadata, MetadataTopic, MetadataPartition, MetadataBroker}, consumer::ConsumerGroupMetadata};
 
 pub struct Metadata {
     metadata: KafkaMetadata,
@@ -19,17 +19,13 @@ impl Metadata {
         let mut brokers = vec![];
         let brokers_metadata = self.metadata.brokers();
         for b in brokers_metadata {
-            brokers.push(Broker { 
-                id: b.id(), 
-                host: b.host().to_string(), 
-                port: b.port()
-            })
+            brokers.push(b.into())
         }
 
         brokers
     }
 
-    pub fn topic(&self) -> Vec<Topic> {
+    pub fn topics(&self) -> Vec<Topic> {
         let mut topics = vec![];
         let topics_metadata = self.metadata.topics();
         for t in topics_metadata {
@@ -38,20 +34,19 @@ impl Metadata {
 
         topics
     }
-
 }
 
-pub struct Broker {
+pub struct Broker<'a> {
     id: i32,
-    host: String,
+    host: &'a str,
     port: i32,
 }
 
-impl Broker {
+impl<'a> Broker<'a> {
     pub fn new(id: i32, host: &str, port: i32) -> Broker {
         Broker {
             id,
-            host: host.to_string(),    
+            host,    
             port,
         }
     }
@@ -59,24 +54,40 @@ impl Broker {
     pub fn name(&self) -> String {
         format!("{}:{}", self.host, self.port)
     }
+
+    pub fn id(&self) -> i32 {
+        self.id
+    }
 }
 
-pub struct Topic<'a> {
-    name: String,
-    partitions: &'a[Partition<'a>],
-}
-
-impl <'a> Topic<'a> {
-    pub fn new(name: String, partitions: &'a[Partition]) -> Topic<'a> {
-        Topic {
-            name,
-            partitions
+impl<'a> From<&'a MetadataBroker> for Broker<'a> {
+    fn from(value: &'a MetadataBroker) -> Self {
+        Broker { 
+            id: value.id(), 
+            host: value.host(), 
+            port: value.port() 
         }
     }
 }
 
-impl <'a> From<&MetadataTopic> for Topic<'a> {
-    fn from(value: &MetadataTopic) -> Self {
+
+pub struct Topic<'a> {
+    name: &'a str,
+    partitions: Vec<Partition<'a>>,
+}
+
+impl<'a> Topic<'a> {
+    pub fn name(&self) -> &str {
+        self.name
+    }
+
+    pub fn partitions(&self) -> &[Partition] {
+        &self.partitions
+    }
+}
+
+impl <'a> From<&'a MetadataTopic> for Topic<'a> {
+    fn from(value: &'a MetadataTopic) -> Self {
 
         let mut partitions = vec![];
 
@@ -86,8 +97,8 @@ impl <'a> From<&MetadataTopic> for Topic<'a> {
         }
 
         Topic { 
-            name: value.name().to_string(), 
-            partitions: &partitions 
+            name: value.name(), 
+            partitions 
         }
     }
 }
@@ -99,19 +110,8 @@ pub struct Partition<'a> {
     replicas: &'a [i32],
 }
 
-impl<'a> Partition<'a> {
-    pub fn new(id: i32, leader: i32, isr: &'a[i32], replicas: &'a[i32]) -> Partition<'a> {
-        Partition {
-            id,
-            leader,
-            isr,
-            replicas,
-        }
-    }
-}
-
-impl<'a> From<&MetadataPartition> for Partition<'a> {
-    fn from(value: &MetadataPartition) -> Self {
+impl<'a> From<&'a MetadataPartition> for Partition<'a> {
+    fn from(value: &'a MetadataPartition) -> Partition<'a> {
         Partition { 
             id: value.id(), 
             leader: value.leader(), 

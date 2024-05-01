@@ -1,21 +1,19 @@
-use std::{ time::Duration};
+use std::{ time::Duration, fmt::Display};
 
-use rdkafka::{consumer::{base_consumer::BaseConsumer, Consumer as KafkaConsumer}, ClientConfig, config::FromClientConfig, util::Timeout, error::KafkaError, metadata::MetadataBroker};
+use rdkafka::{consumer::{base_consumer::BaseConsumer, Consumer as KafkaConsumer}, ClientConfig, config::FromClientConfig, util::Timeout, error::KafkaError};
 
 use crate::metadata::Metadata;
 
 type Result<T> = std::result::Result<T, ConsumerError>;
 
 #[derive(Debug, Clone)]
-struct ConsumerError {
+pub struct ConsumerError {
     message: String,
 }
 
-impl ConsumerError {
-    pub fn new(message: String) -> ConsumerError {
-        ConsumerError {
-            message
-        }
+impl Display for ConsumerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
     }
 }
 
@@ -25,11 +23,6 @@ impl From<KafkaError> for ConsumerError {
             message: value.to_string()
         }
     }
-}
-
-struct ConsumerConfig {
-
-
 }
 
 const DEFAULT_TIMEOUT_IN_SECS: u64 = 30;
@@ -60,9 +53,9 @@ impl Consumer {
 
 
     // Fetch Metadata
-    fn metadata(&self) -> Result<Metadata> {
+    pub fn metadata(&self) -> Result<Metadata> {
         // Metadata
-        let kafka_metadata = self.base_consumer.fetch_metadata(None, self.default_timeout_in_secs)?;
+        let kafka_metadata = self.base_consumer.fetch_metadata(None, self.default_timeout_in_secs)?; 
 
         // Consumer group Metadata
         let cg_metadata = self.base_consumer.group_metadata();

@@ -31,7 +31,7 @@ struct Config {
     group_id: String,
 }
 
-
+/*
 impl TryInto<HashMap<String,String>> for Config {
     type Error = Stderr;
 
@@ -49,4 +49,4 @@ impl TryInto<HashMap<String,String>> for Config {
 
         Ok(map)
     }
-}
+}*/
