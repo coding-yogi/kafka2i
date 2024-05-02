@@ -9,7 +9,6 @@ mod config;
 mod metadata;
 
 fn main() {
-    
 
     let mut client_config = ClientConfig::new();
     client_config.set("bootstrap.servers", "localhost:9092");
@@ -30,5 +29,7 @@ fn main() {
     };
 
     let topics = metadata.topics();
-    print!("{}", topics.len())
+    print!("{}", topics.len());
+
+    print!("{:?}", topics[0].partitions())
 }  

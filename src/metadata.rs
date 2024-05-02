@@ -70,7 +70,7 @@ impl<'a> From<&'a MetadataBroker> for Broker<'a> {
     }
 }
 
-
+#[derive(Debug)]
 pub struct Topic<'a> {
     name: &'a str,
     partitions: Vec<Partition<'a>>,
@@ -103,6 +103,7 @@ impl <'a> From<&'a MetadataTopic> for Topic<'a> {
     }
 }
 
+#[derive(Debug)]
 pub struct Partition<'a> {
     id: i32,
     leader: i32,
