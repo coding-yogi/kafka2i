@@ -7,6 +7,8 @@ const GROUP_ID: &str = "group.id";
 const SESSION_TIMEOUT_MS: &str = "session.timeout.ms";
 const ENABLE_AUTO_COMMIT: &str = "enable.auto.commit";
 
+const DEFAULT_GROUP_ID: &str = "cg.krust";
+
 pub enum LogLevel {
     Debug,
     Info,
@@ -67,6 +69,8 @@ impl TryInto<ClientConfig> for Config {
         // group id
         if self.group_id != "" {
             client_config.set(GROUP_ID.to_string(), self.group_id);
+        } else {
+            client_config.set(GROUP_ID.to_string(), DEFAULT_GROUP_ID.to_string());
         }
         
         // session time out

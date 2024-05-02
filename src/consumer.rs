@@ -1,6 +1,6 @@
 use std::{ time::Duration, fmt::Display};
 
-use rdkafka::{consumer::{base_consumer::BaseConsumer, Consumer as KafkaConsumer}, ClientConfig, config::FromClientConfig, util::Timeout, error::KafkaError};
+use rdkafka::{consumer::{base_consumer::BaseConsumer, Consumer as KafkaConsumer}, ClientConfig, config::FromClientConfig, util::Timeout, error::KafkaError, message::BorrowedMessage, Offset};
 
 use crate::metadata::Metadata;
 
@@ -51,7 +51,6 @@ impl Consumer {
         Ok(consumer)
     }
 
-
     // Fetch Metadata
     pub fn metadata(&self) -> Result<Metadata> {
         // Metadata
@@ -60,6 +59,34 @@ impl Consumer {
         // Consumer group Metadata
         let cg_metadata = self.base_consumer.group_metadata();
         Ok(Metadata::new(kafka_metadata, cg_metadata))
+    }
+
+    // Consume
+    pub fn consume(&self) -> Result<Option<BorrowedMessage>> {
+        if let Some(msg_result) = self.base_consumer.poll(None) {
+            let msg = msg_result?;
+            return Ok(Some(msg));
+        }    
+
+        Ok(None)
+    }
+
+    // subscribe to a topic
+    pub fn subscribe(&self, topics: &[&str]) -> Result<()>{
+        self.base_consumer.subscribe(topics)?;
+        Ok(())
+    }
+
+    // unsubscribe
+    pub fn unsubscribe(&self) -> Result<()>{
+        self.base_consumer.unsubscribe();
+        Ok(())
+    }
+
+    // Seek
+    pub fn seek(&self, topic: &str) -> Result<()> {
+        self.base_consumer.seek(topic, 0, Offset::Beginning, Duration::from_secs(DEFAULT_TIMEOUT_IN_SECS))?;
+        Ok(())
     }
 
 }
