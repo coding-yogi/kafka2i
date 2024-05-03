@@ -111,6 +111,12 @@ pub struct Partition<'a> {
     replicas: &'a [i32],
 }
 
+impl<'a> Partition<'a> {
+    pub fn id(&self) -> i32 {
+        self.id
+    }
+}
+
 impl<'a> From<&'a MetadataPartition> for Partition<'a> {
     fn from(value: &'a MetadataPartition) -> Partition<'a> {
         Partition { 

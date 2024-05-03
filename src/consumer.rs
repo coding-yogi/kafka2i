@@ -1,6 +1,18 @@
 use std::{ time::Duration, fmt::Display};
 
-use rdkafka::{consumer::{base_consumer::BaseConsumer, Consumer as KafkaConsumer}, ClientConfig, config::FromClientConfig, util::Timeout, error::KafkaError, message::BorrowedMessage, Offset};
+use rdkafka::{
+    consumer::{
+        base_consumer::BaseConsumer, 
+        Consumer as KafkaConsumer, 
+    }, 
+    ClientConfig, 
+    util::Timeout, 
+    error::KafkaError, 
+    message::BorrowedMessage, 
+    Offset, 
+    TopicPartitionList, config::FromClientConfig, statistics::TopicPartition, 
+    
+};
 
 use crate::metadata::Metadata;
 
@@ -83,10 +95,31 @@ impl Consumer {
         Ok(())
     }
 
-    // Seek
-    pub fn seek(&self, topic: &str) -> Result<()> {
-        self.base_consumer.seek(topic, 0, Offset::Beginning, Duration::from_secs(DEFAULT_TIMEOUT_IN_SECS))?;
+    // Assign
+    pub fn assign(&self, topic: &str) -> Result<()>{
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_topic_unassigned(topic);
+        let _ = self.base_consumer.assign(&tpl)?;
         Ok(())
     }
 
+    // Seek
+    pub fn seek(&self, topic: &str, offset: Offset) -> Result<()> {
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_topic_unassigned(topic);
+
+        tpl.set_all_offsets(offset)?;
+        self.base_consumer.assign(&tpl)?;
+
+        //self.base_consumer.seek(topic, partition, offset, Duration::from_secs(DEFAULT_TIMEOUT_IN_SECS))?;
+        Ok(())
+    }
+
+    // Seek to beginning
+    pub fn seek_to_beginning(&self) -> Result<()> {
+        let mut subscription = self.base_consumer.subscription()?;
+        let _ = subscription.set_all_offsets(Offset::Offset(0))?;
+        Ok(())
+    }
 }
+
