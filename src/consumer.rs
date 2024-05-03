@@ -14,7 +14,7 @@ use rdkafka::{
     
 };
 
-use crate::metadata::Metadata;
+use crate::metadata::{Metadata, Topic};
 
 type Result<T> = std::result::Result<T, ConsumerError>;
 
@@ -96,29 +96,46 @@ impl Consumer {
     }
 
     // Assign
-    pub fn assign(&self, topic: &str) -> Result<()>{
+    pub fn assign(&self, topic: &str, partition: i32) -> Result<()>{
         let mut tpl = TopicPartitionList::new();
-        tpl.add_topic_unassigned(topic);
+        tpl.add_partition(topic, partition);
         let _ = self.base_consumer.assign(&tpl)?;
         Ok(())
     }
 
-    // Seek
-    pub fn seek(&self, topic: &str, offset: Offset) -> Result<()> {
+    pub fn assign_all_partitions(&self, topic: &Topic) -> Result<()>{
         let mut tpl = TopicPartitionList::new();
-        tpl.add_topic_unassigned(topic);
+        for p in topic.partitions() {
+            tpl.add_partition(topic.name(), p.id());
+        }
 
-        tpl.set_all_offsets(offset)?;
-        self.base_consumer.assign(&tpl)?;
-
-        //self.base_consumer.seek(topic, partition, offset, Duration::from_secs(DEFAULT_TIMEOUT_IN_SECS))?;
+        let _ = self.base_consumer.assign(&tpl)?;
         Ok(())
     }
 
-    // Seek to beginning
-    pub fn seek_to_beginning(&self) -> Result<()> {
-        let mut subscription = self.base_consumer.subscription()?;
-        let _ = subscription.set_all_offsets(Offset::Offset(0))?;
+    // Seek for a specific topic and partition
+    pub fn seek(&self, topic: &str, partition: i32, offset: Offset) -> Result<()> {
+        self.base_consumer.seek(topic, partition, offset, Duration::from_secs(DEFAULT_TIMEOUT_IN_SECS))?;
+        Ok(())
+    }
+
+    // Seek for all topics in the partition
+    pub fn seek_for_all_partitions(&self, topic: &Topic, offset: Offset) -> Result<()>{
+        for p in topic.partitions() {
+            let _ = self.seek(topic.name(), p.id(), offset)?;
+        }
+
+        Ok(())
+    }
+
+    // set offsets against a timestamp for a TPL fetched from assignment
+    pub fn seek_on_timestamp(&self, timestamp: i64) -> Result<()> {
+        let tpl = self.base_consumer.offsets_for_timestamp(timestamp, Duration::from_secs(DEFAULT_TIMEOUT_IN_SECS))?;
+        for e in tpl.elements() {
+            log::debug!("seeking on topic {} & partition {}, offset {} with err {:?}", e.topic(), e.partition(), e.offset().to_raw().unwrap(), e.error());
+            self.seek(e.topic(), e.partition(), e.offset())?;
+        }
+
         Ok(())
     }
 }

@@ -37,15 +37,11 @@ fn main() {
         }
     };
 
-    let topics = metadata.topics();
-    log::info!("List of topics: {:?}", topics.iter().map(|t| t.name().to_string()).collect::<Vec<String>>());
-
-    log::info!("Partitions for topic {}: {:?}", topics[0].name() , topics[0].partitions().iter().map(|p| p.id()).collect::<Vec<i32>>());
-    
+    // Assign all topics to this consumer and reset offset to 
+    let test_topic = &metadata.topics()[0];
         
-    // resetting offset to beginning
-    match consumer.seek(topics[0].name(), rdkafka::Offset::Beginning){
-
+    // assign topic
+    match consumer.assign_all_partitions(test_topic) {
         Ok(()) => (),
         Err(err) => {
             log::error!("{}", err);
@@ -53,41 +49,63 @@ fn main() {
         }
     };
 
-    log::info!("subscribing to topic {}", topics[0].name());
+    // Probably should wait for some event
+    thread::sleep(Duration::from_secs(2));
+
+    // seek to beginning
+    match consumer.seek_for_all_partitions(test_topic, rdkafka::Offset::Beginning) {
+        Ok(()) => (),
+        Err(err) => {
+            log::error!("{}", err)
+        }
+    };
     
-    match consumer.subscribe(&vec![topics[0].name()]) {
-        Ok(()) => (),
-        Err(err) => {
-            log::error!("{}", err);
-            return;
-        }
-    };
-
-    thread::sleep(Duration::from_secs(3));
-
-    /*
-    log::info!("seeking offset to beginning");
-    match consumer.seek_to_beginning() {
-        Ok(()) => (),
-        Err(err) => {
-            log::error!("{}", err);
-            return;
-        }
-    };
-    */
+   // thread::sleep(Duration::from_secs(3));
 
     log::info!("consuming from topics");
-    match consumer.consume() {
-        Ok(opt_message) => {
-            if let Some(msg) = opt_message {
-                log::info!("{}", std::str::from_utf8(msg.payload().unwrap()).unwrap());
-            } else {
-                log::info!("no message");
+
+    for i in 1..5 {
+        match consumer.consume() {
+            Ok(opt_message) => {
+                if let Some(msg) = opt_message {
+                    log::info!("{}", std::str::from_utf8(msg.payload().unwrap()).unwrap());
+                } else {
+                    log::info!("no message");
+                }
+            },
+            Err(err) => {
+                log::error!("{}",err);
+                return;
             }
-        },
-        Err(err) => {
-            log::error!("{}",err);
-            return;
         }
     }
+
+    //thread::sleep(Duration::from_secs(5));
+
+     // seek to beginning
+    match consumer.seek_on_timestamp(1714732185000) {
+        Ok(()) => (),
+        Err(err) => {
+            log::error!("{}", err);
+            return;
+        }
+    };
+   
+    for i in 1..2 {
+        match consumer.consume() {
+            Ok(opt_message) => {
+                if let Some(msg) = opt_message {
+                    log::info!("{}", std::str::from_utf8(msg.payload().unwrap()).unwrap());
+                } else {
+                    log::info!("no message");
+                }
+            },
+            Err(err) => {
+                log::error!("{}",err);
+                return;
+            }
+        }
+    }
+
+
  }  
