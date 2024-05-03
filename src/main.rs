@@ -1,6 +1,6 @@
 use std::{thread, time::Duration};
 
-use log::info;
+use consumer::Result;
 use rdkafka::{ClientConfig, Message};
 
 use crate::consumer::Consumer;
@@ -65,25 +65,29 @@ fn main() {
     log::info!("consuming from topics");
 
     for i in 1..5 {
-        match consumer.consume() {
-            Ok(opt_message) => {
-                if let Some(msg) = opt_message {
-                    log::info!("{}", std::str::from_utf8(msg.payload().unwrap()).unwrap());
-                } else {
-                    log::info!("no message");
-                }
-            },
-            Err(err) => {
-                log::error!("{}",err);
-                return;
-            }
+        if consume(&consumer).is_err() {
+            return;
         }
     }
 
-    //thread::sleep(Duration::from_secs(5));
-
-     // seek to beginning
+    // seek based on timestamp
     match consumer.seek_on_timestamp(1714732185000) {
+        Ok(()) => (),
+        Err(err) => {
+            log::error!("{}", err);
+            return;
+        }
+    };
+
+    // consumer
+    for i in 1..2 {
+        if consume(&consumer).is_err() {
+            return;
+        }
+    }
+
+    // seek based on offset number
+    match consumer.seek_for_all_partitions(test_topic, rdkafka::Offset::Offset(1)){
         Ok(()) => (),
         Err(err) => {
             log::error!("{}", err);
@@ -92,20 +96,26 @@ fn main() {
     };
    
     for i in 1..2 {
-        match consumer.consume() {
-            Ok(opt_message) => {
-                if let Some(msg) = opt_message {
-                    log::info!("{}", std::str::from_utf8(msg.payload().unwrap()).unwrap());
-                } else {
-                    log::info!("no message");
-                }
-            },
-            Err(err) => {
-                log::error!("{}",err);
-                return;
-            }
+        if consume(&consumer).is_err() {
+            return;
         }
     }
+ } 
 
+fn consume(consumer: &Consumer) -> Result<()> {
+    match consumer.consume() {
+        Ok(opt_message) => {
+            if let Some(msg) = opt_message {
+                log::info!("{}", std::str::from_utf8(msg.payload().unwrap()).unwrap());
+            } else {
+                log::info!("no message");
+            }
 
- }  
+            return Ok(());
+        },
+        Err(err) => {
+            log::error!("{}",err);
+            return Err(err);
+        }
+    }
+}

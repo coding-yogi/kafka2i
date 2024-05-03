@@ -16,7 +16,7 @@ use rdkafka::{
 
 use crate::metadata::{Metadata, Topic};
 
-type Result<T> = std::result::Result<T, ConsumerError>;
+pub type Result<T> = std::result::Result<T, ConsumerError>;
 
 #[derive(Debug, Clone)]
 pub struct ConsumerError {
