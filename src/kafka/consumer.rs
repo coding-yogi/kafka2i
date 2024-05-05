@@ -10,11 +10,11 @@ use rdkafka::{
     error::KafkaError, 
     message::BorrowedMessage, 
     Offset, 
-    TopicPartitionList, config::FromClientConfig, statistics::TopicPartition, 
+    TopicPartitionList, config::FromClientConfig, 
     
 };
 
-use crate::metadata::{Metadata, Topic};
+use crate::kafka::metadata::{Metadata, Topic};
 
 pub type Result<T> = std::result::Result<T, ConsumerError>;
 
@@ -62,7 +62,9 @@ impl Consumer {
 
         Ok(consumer)
     }
+}
 
+impl Consumer{
     // Fetch Metadata
     pub fn metadata(&self) -> Result<Metadata> {
         // Metadata
@@ -134,6 +136,15 @@ impl Consumer {
         for e in tpl.elements() {
             log::debug!("seeking on topic {} & partition {}, offset {} with err {:?}", e.topic(), e.partition(), e.offset().to_raw().unwrap(), e.error());
             self.seek(e.topic(), e.partition(), e.offset())?;
+        }
+
+        Ok(())
+    }
+
+    pub fn groups(&self) -> Result<()>{
+        let group_list = self.base_consumer.fetch_group_list(None, self.default_timeout_in_secs)?;
+        for group in group_list.groups() {
+            log::info!("group name : {} , state: {}, proto: {}", group.name(), group.state(), group.protocol());
         }
 
         Ok(())

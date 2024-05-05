@@ -1,5 +1,6 @@
 use std::fmt::Display;
 
+use clap::{Parser, ValueEnum};
 use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
 
 const BOOTSTRAP_SERVERS: &str = "bootstrap.servers";
@@ -9,6 +10,7 @@ const ENABLE_AUTO_COMMIT: &str = "enable.auto.commit";
 
 const DEFAULT_GROUP_ID: &str = "cg.krust";
 
+#[derive(Debug, Clone, ValueEnum)]
 pub enum LogLevel {
     Debug,
     Info,
@@ -44,11 +46,21 @@ impl Display for ConfigError {
     }
 }
 
+/// TUI for kafka written in Rust
+#[derive(Parser, Debug)]
+#[command(name = "krust")]
+#[command(about = "TUI for kafka written in Rust", long_about = None)]
 pub struct Config {
+    /// Log level to be set for kafka client
+    #[arg(short, long, value_enum, default_value_t = LogLevel::Info)]
     pub log_level: LogLevel,
-    pub bootstrap_server: String,
-    pub session_timeout_ms: u16,
-    pub enable_auto_commit: bool,
+
+    /// Bootstrap servers in kafka format
+    #[arg(short, long, required=true)]
+    pub bootstrap_servers: String,
+    
+    // Consumer group ID
+    #[arg(short, long, default_value = DEFAULT_GROUP_ID)]
     pub group_id: String,
 }
 
@@ -60,8 +72,8 @@ impl TryInto<ClientConfig> for Config {
         client_config.log_level = self.log_level.into();
 
         // bootstrap server
-        if self.bootstrap_server != "" {
-            client_config.set(BOOTSTRAP_SERVERS.to_string(), self.bootstrap_server);
+        if self.bootstrap_servers != "" {
+            client_config.set(BOOTSTRAP_SERVERS.to_string(), self.bootstrap_servers);
         } else {
             return Err(ConfigError::new("bootstrap servers cannot be empty"));
         }
@@ -73,16 +85,6 @@ impl TryInto<ClientConfig> for Config {
             client_config.set(GROUP_ID.to_string(), DEFAULT_GROUP_ID.to_string());
         }
         
-        // session time out
-        if self.session_timeout_ms != 0 {
-            client_config.set(SESSION_TIMEOUT_MS.to_string(), self.session_timeout_ms.to_string());
-        }
-
-        // enable auto commit
-        if self.enable_auto_commit {
-            client_config.set(ENABLE_AUTO_COMMIT.to_string(), self.enable_auto_commit.to_string());
-        }
-
         Ok(client_config)
     }
 }

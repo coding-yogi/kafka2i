@@ -1,35 +1,61 @@
-use std::{thread, time::Duration};
+use std::{thread, time::Duration, error::Error};
 
-use consumer::Result;
+use clap::Parser;
 use rdkafka::{ClientConfig, Message};
+use crossterm::{terminal::{enable_raw_mode, EnterAlternateScreen, disable_raw_mode, LeaveAlternateScreen}, execute};
+use ratatui::{prelude::CrosstermBackend, Terminal};
+use tui::{app::App, events};
 
-use crate::consumer::Consumer;
+use crate::kafka::consumer::{Consumer, Result as ConsumerResult};
+use crate::config::Config;
 
-mod consumer;
-mod producer;
+
+mod kafka;
 mod cmd;
 mod config;
-mod metadata;
+mod tui;
 
-fn main() {
-
-    let mut client_config = ClientConfig::new();
-    client_config.set("bootstrap.servers", "localhost:9092")
-        .set("group.id", "cd.krust.1")
-        .set("auto.offset.reset", "earliest");
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
 
     env_logger::init();
-    log::info!("creating new consumer");
+    
+    // Parsing config from command line args
+    let config = Config::parse();
+    let client_config: ClientConfig = match config.try_into() {
+        Ok(c) => c,
+        Err(err) => {
+            log::error!("Unable to parse config: {}", err);
+            return Ok(());
+        }
+    }; 
 
+    // Setup Kafka consumer
+    log::info!("creating new consumer");
     let consumer = match Consumer::new(&client_config){
         Ok(c) => c,
         Err(err) => {
             print!("{:?}",err);
-            return;
+            return Ok(());
         }
     };
 
-    let metadata = match consumer.metadata() {
+    //setup TUI
+    setup()?;
+
+    // Run TUI
+    let result = run(&consumer).await;
+
+    // Shutdown TUI
+    shutdown()?;
+    result?;
+    
+    Ok(())
+
+
+
+
+/*    let metadata = match consumer.metadata() {
         Ok(m) => m,
         Err(err) => {
             print!("{:?}",err);
@@ -100,9 +126,13 @@ fn main() {
             return;
         }
     }
+
+    // print group list
+    consumer.groups().unwrap();
+    */
  } 
 
-fn consume(consumer: &Consumer) -> Result<()> {
+fn consume(consumer: &Consumer) -> ConsumerResult<()> {
     match consumer.consume() {
         Ok(opt_message) => {
             if let Some(msg) = opt_message {
@@ -118,4 +148,34 @@ fn consume(consumer: &Consumer) -> Result<()> {
             return Err(err);
         }
     }
+}
+
+fn setup() -> Result<(), Box<dyn Error>>{
+    enable_raw_mode()?;
+    execute!(std::io::stderr(), EnterAlternateScreen)?;
+    Ok(())
+}
+
+fn shutdown() -> Result<(), Box<dyn Error>> {
+  execute!(std::io::stderr(), LeaveAlternateScreen)?;
+  disable_raw_mode()?;
+  Ok(())
+}
+
+async fn run(consumer: &Consumer) -> Result<(), Box<dyn Error>> {
+    // ratatui terminal
+    let mut t = Terminal::new(CrosstermBackend::new(std::io::stderr()))?;
+    let mut app = App::new(&mut t, consumer).await;
+    let mut events = events::EventHandler::new(1.0, 30.0);
+
+    loop {
+        let event = events.next().await?;
+        app.event_handler(event).await;
+
+        if app.should_quit() {
+            break;
+        }
+    }
+       
+    Ok(())
 }
