@@ -1,4 +1,5 @@
 use std::io::Stderr;
+use std::sync::Arc;
 use std::usize;
 
 use crossterm::event::{KeyEventKind, KeyCode};
@@ -9,6 +10,7 @@ use ratatui::{Terminal, Frame};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Layout, Constraint};
 use strum::{EnumIter, FromRepr, Display, VariantNames};
+use tokio::sync::Mutex;
 use crate::kafka::consumer::Consumer;
 use crate::tui::events::TuiEvent;
 use crate::tui::widgets::{AppWidget, UIList, UIBlock, UIParagraph, UIScrollbar, UIParagraphWithScrollbar};
@@ -54,10 +56,11 @@ struct AppWidgets<'a> {
     tabs: UITabs<'a>,
     details: UIBlock<'a>,
     footer: UIParagraph<'a>,
-   /* namespace_list: UIList<'a>,
-    kind_list: UIList<'a>,
-    resources_list: UIList<'a>,
-    description_paragraph: UIParagraphWithScrollbar<'a>, */
+    broker_list: UIList<'a>,
+    consumer_grp_list: UIList<'a>,
+    topic_list: UIList<'a>,
+    partition_list: UIList<'a>,
+    component_details: UIParagraphWithScrollbar<'a>,
 }
 
 impl <'a> AppWidgets<'a> {
@@ -69,7 +72,6 @@ impl <'a> AppWidgets<'a> {
         //overall layout
         let outer_layout = Layout::vertical([Length(5), Length(2), Fill(1), Length(3)]);
         let [title, tab, details, footer] = outer_layout.areas(frame.size());
-
         let tab_horizontal = Layout::horizontal([Percentage(10), Percentage(90)]);
         let [component, component_details] = tab_horizontal.areas(details);
 
@@ -78,6 +80,25 @@ impl <'a> AppWidgets<'a> {
         self.tabs.render(frame, tab);
         self.details.render(frame, details);
         self.footer.render(frame, footer);
+
+        let selected_tab = SelectedTab::from_repr(self.tabs.selected()).unwrap();
+        match selected_tab {
+            SelectedTab::BROKERS => {
+                self.broker_list.render(frame, component);
+                self.component_details.render(frame, component_details);
+            },
+            SelectedTab::CONSUMERGROUPS => {
+                self.consumer_grp_list.render(frame, component);
+                self.component_details.render(frame, component_details);
+            },
+            SelectedTab::TOPICS => {
+                let vertical = Layout::vertical([Percentage(50), Percentage(50)]);
+                let [topic_component, partition_component] = vertical.areas(component);
+                self.topic_list.render(frame, topic_component);
+                self.partition_list.render(frame, partition_component);
+                self.component_details.render(frame, component_details);
+            },
+        };
     }
 }
 
@@ -113,12 +134,12 @@ pub struct App<'a> {
     widgets: AppWidgets<'a>,
     state: AppState,
     terminal: &'a mut Terminal<CrosstermBackend<Stderr>>,
-    kafka_consumer: &'a Consumer,
+    kafka_consumer: Arc<Mutex<Consumer>>,
 }
 
 // This impl block only defines the new state of the app
 impl <'a> App<'a> {
-    pub async fn new(t: &'a mut Terminal<CrosstermBackend<Stderr>>, kafka_consumer: &'a Consumer) -> App<'a> {
+    pub async fn new(t: &'a mut Terminal<CrosstermBackend<Stderr>>, kafka_consumer: Arc<Mutex<Consumer>>) -> App<'a> {
        App {
            widgets: AppWidgets {
                 title: UIParagraph::new("", Text::from(vec![
@@ -130,11 +151,12 @@ impl <'a> App<'a> {
                 details: UIBlock::new(""),
                 footer: UIParagraph::new("", Text::from(vec![
                     Span::from(APP_FOOTER).gray().into_centered_line(),
-                ]))
-                /*namespace_list: UIList::new("Namespace", namespaces),
-                kind_list: UIList::new("Kind", k8s.get_kinds().await),
-                resources_list: UIList::new("Resource", vec![]),
-                description_paragraph: UIParagraphWithScrollbar::new("Description", "".into(), ScrollbarOrientation::VerticalRight),*/
+                ])),
+                broker_list: UIList::new("Brokers", vec![]),
+                consumer_grp_list: UIList::new("Consumer Groups", vec![]),
+                topic_list: UIList::new("Topics", vec![]),
+                partition_list: UIList::new("Partitions", vec![]),
+                component_details: UIParagraphWithScrollbar::new("Details", "".into(), ScrollbarOrientation::VerticalRight),
            },
            state: AppState {
                 selected_tab: SelectedTab::default(),

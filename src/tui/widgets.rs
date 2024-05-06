@@ -80,6 +80,10 @@ impl <'a> UITabs<'a> {
         self.state = idx;
     }
 
+    pub fn selected(&self) -> usize {
+        self.state
+    }
+
     pub fn selected_title(&self) -> &str {
         self.titles[self.state]
     }

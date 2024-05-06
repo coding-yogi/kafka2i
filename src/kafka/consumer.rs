@@ -37,12 +37,15 @@ impl From<KafkaError> for ConsumerError {
     }
 }
 
-const DEFAULT_TIMEOUT_IN_SECS: u64 = 30;
+const DEFAULT_TIMEOUT_IN_SECS: Duration = Duration::from_secs(30);
+const DEFAULT_REFRESH_METADATA_IN_SECS: Duration = Duration::from_secs(30);
 
 // Wraps Kafka Consumer from the lib
 pub struct Consumer {
     base_consumer: BaseConsumer,
     default_timeout_in_secs: Timeout,
+    pub refresh_metadata_in_secs: Duration,
+    metadata: Metadata
 }
 
 impl Consumer {
@@ -53,11 +56,13 @@ impl Consumer {
         let base_consumer = BaseConsumer::from_config(config)?;
 
         // Time out
-        let default_timeout = Timeout::After(Duration::new(DEFAULT_TIMEOUT_IN_SECS, 0));
+        let default_timeout = Timeout::After(DEFAULT_TIMEOUT_IN_SECS);
         
         let consumer = Consumer {
             base_consumer,
             default_timeout_in_secs: default_timeout,
+            refresh_metadata_in_secs: DEFAULT_REFRESH_METADATA_IN_SECS,
+            metadata: Metadata::new(),
         };
 
         Ok(consumer)
@@ -66,13 +71,16 @@ impl Consumer {
 
 impl Consumer{
     // Fetch Metadata
-    pub fn metadata(&self) -> Result<Metadata> {
+    pub fn fetch_metadata(&mut self) -> Result<()> {
         // Metadata
         let kafka_metadata = self.base_consumer.fetch_metadata(None, self.default_timeout_in_secs)?; 
+        self.metadata.update(&kafka_metadata);
+        Ok(())
+    }
 
-        // Consumer group Metadata
-        let cg_metadata = self.base_consumer.group_metadata();
-        Ok(Metadata::new(kafka_metadata, cg_metadata))
+    // Return Metadata
+    pub fn metadata(&self) -> &Metadata {
+        &self.metadata
     }
 
     // Consume
@@ -117,7 +125,7 @@ impl Consumer{
 
     // Seek for a specific topic and partition
     pub fn seek(&self, topic: &str, partition: i32, offset: Offset) -> Result<()> {
-        self.base_consumer.seek(topic, partition, offset, Duration::from_secs(DEFAULT_TIMEOUT_IN_SECS))?;
+        self.base_consumer.seek(topic, partition, offset, DEFAULT_TIMEOUT_IN_SECS)?;
         Ok(())
     }
 
@@ -132,7 +140,7 @@ impl Consumer{
 
     // set offsets against a timestamp for a TPL fetched from assignment
     pub fn seek_on_timestamp(&self, timestamp: i64) -> Result<()> {
-        let tpl = self.base_consumer.offsets_for_timestamp(timestamp, Duration::from_secs(DEFAULT_TIMEOUT_IN_SECS))?;
+        let tpl = self.base_consumer.offsets_for_timestamp(timestamp, DEFAULT_TIMEOUT_IN_SECS)?;
         for e in tpl.elements() {
             log::debug!("seeking on topic {} & partition {}, offset {} with err {:?}", e.topic(), e.partition(), e.offset().to_raw().unwrap(), e.error());
             self.seek(e.topic(), e.partition(), e.offset())?;

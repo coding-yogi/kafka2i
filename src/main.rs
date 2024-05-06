@@ -1,9 +1,10 @@
-use std::{thread, time::Duration, error::Error};
+use std::{error::Error, sync::Arc, io::Stderr};
 
 use clap::Parser;
 use rdkafka::{ClientConfig, Message};
 use crossterm::{terminal::{enable_raw_mode, EnterAlternateScreen, disable_raw_mode, LeaveAlternateScreen}, execute};
 use ratatui::{prelude::CrosstermBackend, Terminal};
+use tokio::{time, sync::Mutex};
 use tui::{app::App, events};
 
 use crate::kafka::consumer::{Consumer, Result as ConsumerResult};
@@ -40,16 +41,34 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     };
 
+
+    let consumer = Arc::new(Mutex::new(consumer));
+    let consumer_clone = consumer.clone();
+
+    let handle = tokio::spawn(async move {
+        loop {
+            let mut consumer_guard = consumer_clone.lock().await;
+            let _ = consumer_guard.fetch_metadata();
+            let refresh_time = consumer_guard.refresh_metadata_in_secs;
+            drop(consumer_guard);
+
+            time::sleep(refresh_time).await;
+        }
+    });
+
     //setup TUI
     setup()?;
 
     // Run TUI
-    let result = run(&consumer).await;
+    let mut t = Terminal::new(CrosstermBackend::new(std::io::stderr()))?;
+    let result = run(&mut t, consumer).await;
 
     // Shutdown TUI
     shutdown()?;
     result?;
-    
+
+    // Handle
+    drop(handle);
     Ok(())
 
 
@@ -162,10 +181,9 @@ fn shutdown() -> Result<(), Box<dyn Error>> {
   Ok(())
 }
 
-async fn run(consumer: &Consumer) -> Result<(), Box<dyn Error>> {
+async fn run<'a>(t: &'a mut Terminal<CrosstermBackend<Stderr>>, consumer: Arc<Mutex<Consumer>>) -> Result<(), Box<dyn Error>> {
     // ratatui terminal
-    let mut t = Terminal::new(CrosstermBackend::new(std::io::stderr()))?;
-    let mut app = App::new(&mut t, consumer).await;
+    let mut app = App::new(t, consumer).await;
     let mut events = events::EventHandler::new(1.0, 30.0);
 
     loop {
