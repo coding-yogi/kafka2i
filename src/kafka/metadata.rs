@@ -31,6 +31,18 @@ impl Metadata {
         self.brokers = brokers;
         self.topics = topics;
     }
+
+    pub fn brokers_list(&self) -> Vec<String> {
+        self.brokers.iter()
+            .map(|b| b.name())
+            .collect()
+    }
+
+    pub fn topics_list(&self) -> Vec<String> {
+        self.topics.iter()
+            .map(|t| t.name().to_string())
+            .collect()
+    }
 }
 
 pub struct Broker {
@@ -49,7 +61,7 @@ impl Broker {
     }
 
     pub fn name(&self) -> String {
-        format!("{}:{}", self.host, self.port)
+        format!("{}:{} - {}", self.host, self.port, self.id())
     }
 
     pub fn id(&self) -> i32 {

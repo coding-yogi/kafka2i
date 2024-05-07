@@ -8,6 +8,12 @@ use ratatui::{
 const HIGHLIGHT_COLOR: Color = Color::Yellow;
 const NORMAL_COLOR: Color = Color::Green;
 
+
+pub enum Direction {
+    UP,
+    DOWN,
+}
+
 pub trait AppWidget {
     fn render(&mut self, frame: &mut Frame, area: Rect);
     fn highlight_border(&mut self);
@@ -158,6 +164,15 @@ impl <'a> UIList <'a> {
     
     pub fn state(&self) -> Option<usize> {
         self.state.selected()
+    }
+
+
+    pub fn handle_navigation(&mut self, direction: Direction) {
+        match direction {
+            Direction::UP => self.handle_up(),
+            Direction::DOWN => self.handle_down(),
+        }
+    
     }
 
     pub fn handle_down(&mut self) {
