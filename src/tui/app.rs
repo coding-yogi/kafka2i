@@ -8,7 +8,7 @@ use ratatui::text::{Text, Span};
 use ratatui::widgets::ScrollbarOrientation;
 use ratatui::{Terminal, Frame};
 use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Layout, Constraint};
+use ratatui::layout::{Layout, Constraint, Rect};
 use strum::{EnumIter, FromRepr, Display, VariantNames};
 use tokio::sync::Mutex;
 use crate::kafka::consumer::Consumer;
@@ -37,74 +37,181 @@ enum SelectedTab {
     TOPICS,
 }
 
-/*impl SelectedTab {
-    fn next(self) -> Self {
-        let current_index = self as usize;
-        let next_index = current_index.saturating_add(1);
-        Self::from_repr(next_index).unwrap_or(Self::from_repr(0).unwrap())
-    }
-}*/
-
 enum Direction {
     UP,
     DOWN,
 }
 
-// App widgets is the collection of all the widgets 
-struct AppWidgets<'a> {
-    title: UIParagraph<'a>,
-    tabs: UITabs<'a>,
-    details: UIBlock<'a>,
-    footer: UIParagraph<'a>,
-    broker_list: UIList<'a>,
-    consumer_grp_list: UIList<'a>,
-    topic_list: UIList<'a>,
-    partition_list: UIList<'a>,
-    component_details: UIParagraphWithScrollbar<'a>,
+struct AppLayout<'a> {
+    header_layout: HeaderLayout<'a>,
+    tabs_layout: TabsLayout<'a>,
+    footer_layout: FooterLayout<'a>,
 }
 
-impl <'a> AppWidgets<'a> {
+impl <'a> AppLayout<'a> {
+    pub fn new() -> AppLayout<'a> {
+        AppLayout{
+            header_layout: HeaderLayout::new(),
+            tabs_layout: TabsLayout::new(),
+            footer_layout: FooterLayout::new(),
+        }
+    }
 
-    // refresh the whole layout
-    pub fn refresh_layout(&mut self, frame: &mut Frame) {
+    pub fn render(&mut self, frame: &mut Frame) {
         use Constraint::*;
 
         //overall layout
-        let outer_layout = Layout::vertical([Length(5), Length(2), Fill(1), Length(3)]);
-        let [title, tab, details, footer] = outer_layout.areas(frame.size());
-        let tab_horizontal = Layout::horizontal([Percentage(10), Percentage(90)]);
-        let [component, component_details] = tab_horizontal.areas(details);
+        let outer_layout = Layout::vertical([Length(5), Fill(1), Length(3)]);
+        let [title, tab, footer] = outer_layout.areas(frame.size());
 
-        //render
-        self.title.render(frame, title);
-        self.tabs.render(frame, tab);
-        self.details.render(frame, details);
-        self.footer.render(frame, footer);
+        self.header_layout.render(frame, title);
+        self.tabs_layout.render(frame, tab);
+        self.footer_layout.render(frame, footer);
+    }
+}
+
+struct HeaderLayout<'a> {
+    title: UIParagraph<'a>
+}
+
+impl <'a> HeaderLayout<'a> {
+    pub fn new() -> HeaderLayout<'a> {
+        HeaderLayout{
+            title: UIParagraph::new("", Text::from(vec![
+                Span::from(APP_NAME).bold().green().into_centered_line(),
+                Span::from(APP_VERSION).gray().into_centered_line(),
+            ])),
+        }
+    }
+
+    pub fn render(&mut self, frame: &mut Frame, area: Rect) {
+        self.title.render(frame, area)
+    }
+}
+
+struct TabsLayout<'a> {
+    tabs: UITabs<'a>,
+    broker_layout: BrokerTabLayout<'a>,
+    cg_layout : ConsumerGroupTabLayout<'a>,
+    topics_layout: TopicsAndPartitionsTabLayout<'a>
+}
+
+impl <'a> TabsLayout<'a> {
+    pub fn new() -> TabsLayout<'a> {
+        TabsLayout {
+            tabs: UITabs::new("", SelectedTab::VARIANTS),
+            broker_layout: BrokerTabLayout::new(),
+            cg_layout: ConsumerGroupTabLayout::new(),
+            topics_layout: TopicsAndPartitionsTabLayout::new()
+        }
+    }
+
+    pub fn render(&mut self, frame: &mut Frame, area: Rect) {
+        use Constraint::*;
+        let vertical_layout = Layout::vertical([Length(2), Fill(1)]);
+        let [tabs, details] = vertical_layout.areas(area);
+
+        self.tabs.render(frame, tabs);
 
         let selected_tab = SelectedTab::from_repr(self.tabs.selected()).unwrap();
         match selected_tab {
-            SelectedTab::BROKERS => {
-                self.broker_list.render(frame, component);
-                self.component_details.render(frame, component_details);
-            },
-            SelectedTab::CONSUMERGROUPS => {
-                self.consumer_grp_list.render(frame, component);
-                self.component_details.render(frame, component_details);
-            },
-            SelectedTab::TOPICS => {
-                let vertical = Layout::vertical([Percentage(50), Percentage(50)]);
-                let [topic_component, partition_component] = vertical.areas(component);
-                self.topic_list.render(frame, topic_component);
-                self.partition_list.render(frame, partition_component);
-                self.component_details.render(frame, component_details);
-            },
-        };
+            SelectedTab::BROKERS => self.broker_layout.render(frame, details),
+            SelectedTab::CONSUMERGROUPS => self.cg_layout.render(frame, details),
+            SelectedTab::TOPICS => self.topics_layout.render(frame, details),
+        }
+    }
+}
+
+struct BrokerTabLayout<'a> {
+    brokers_list: UIList<'a>,
+    broker_details: UIParagraphWithScrollbar<'a>
+}
+
+impl <'a> BrokerTabLayout<'a> {
+    pub fn new() -> BrokerTabLayout<'a> {
+        BrokerTabLayout {
+            brokers_list: UIList::new("Brokers", vec![]),
+            broker_details: UIParagraphWithScrollbar::new("Details", "".into(), ScrollbarOrientation::VerticalRight),
+        }
+    }
+
+    pub fn render(&mut self, frame: &mut Frame, area: Rect) {
+        let horizontal_layout = Layout::horizontal([Constraint::Percentage(10), Constraint::Fill(1)]);
+        let [list, details] = horizontal_layout.areas(area);
+        self.brokers_list.render(frame, list);
+        self.broker_details.render(frame, details);
+    }
+}
+
+struct ConsumerGroupTabLayout<'a> {
+    cg_list: UIList<'a>,
+    cg_details: UIParagraphWithScrollbar<'a>
+}
+
+impl <'a> ConsumerGroupTabLayout<'a> {
+    pub fn new() -> ConsumerGroupTabLayout<'a> {
+        ConsumerGroupTabLayout {
+            cg_list: UIList::new("Consumer Groups", vec![]),
+            cg_details: UIParagraphWithScrollbar::new("Details", "".into(), ScrollbarOrientation::VerticalRight),
+        }
+    }
+
+    pub fn render(&mut self, frame: &mut Frame, area: Rect) {
+        let horizontal_layout = Layout::horizontal([Constraint::Percentage(10), Constraint::Fill(1)]);
+        let [list, details] = horizontal_layout.areas(area);
+
+        self.cg_list.render(frame, list);
+        self.cg_details.render(frame, details);
+    }
+}
+
+struct TopicsAndPartitionsTabLayout<'a> {
+    topics_list: UIList<'a>,
+    partitions_list: UIList<'a>,
+    topic_parition_details: UIParagraphWithScrollbar<'a>
+}
+
+impl <'a> TopicsAndPartitionsTabLayout<'a> {
+    pub fn new() -> TopicsAndPartitionsTabLayout<'a> {
+        TopicsAndPartitionsTabLayout {
+            topics_list: UIList::new("Topics", vec![]),
+            partitions_list: UIList::new("Partitions", vec![]),
+            topic_parition_details: UIParagraphWithScrollbar::new("Details", "".into(), ScrollbarOrientation::VerticalRight),
+        }
+    }
+
+    pub fn render(&mut self, frame: &mut Frame, area: Rect) {
+        let horizontal_layout = Layout::horizontal([Constraint::Percentage(10), Constraint::Fill(1)]);
+        let [list, details] = horizontal_layout.areas(area);
+        let vertical_layout = Layout::vertical([Constraint::Percentage(50), Constraint::Fill(1)]);
+        let [topics_list, partitions_list] = vertical_layout.areas(list);
+
+        self.topics_list.render(frame, topics_list);
+        self.partitions_list.render(frame, partitions_list);
+        self.topic_parition_details.render(frame, details);
+    }
+}
+
+struct FooterLayout<'a> {
+    footer: UIParagraph<'a>
+}
+
+impl <'a> FooterLayout<'a> {
+    pub fn new() -> FooterLayout<'a> {
+        FooterLayout {
+            footer: UIParagraph::new("", Text::from(vec![
+                Span::from(APP_FOOTER).gray().into_centered_line(),
+            ]))
+        }
+    }
+
+    pub fn render(&mut self, frame: &mut Frame, area: Rect) {
+        self.footer.render(frame, area)
     }
 }
 
 // App state maintains the state at app level
 struct AppState {
-
     // selected_tab holds the state of currently selected Tab
     selected_tab: SelectedTab,
 
@@ -119,7 +226,6 @@ struct AppState {
 impl AppState {
 }
 
-
 const APP_NAME: &str = "Kafka2i - TUI for Kafka";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const APP_FOOTER: &str = "<TAB> Switch Tabs | <ESC> Quit | <UP/DOWN> Scroll List";
@@ -131,7 +237,8 @@ const APP_FOOTER: &str = "<TAB> Switch Tabs | <ESC> Quit | <UP/DOWN> Scroll List
 // Event Handler to update the state of the app or the undelying widget
 // And a Kafka client
 pub struct App<'a> {
-    widgets: AppWidgets<'a>,
+    //widgets: AppWidgets<'a>,
+    layout: AppLayout<'a>,
     state: AppState,
     terminal: &'a mut Terminal<CrosstermBackend<Stderr>>,
     kafka_consumer: Arc<Mutex<Consumer>>,
@@ -141,23 +248,7 @@ pub struct App<'a> {
 impl <'a> App<'a> {
     pub async fn new(t: &'a mut Terminal<CrosstermBackend<Stderr>>, kafka_consumer: Arc<Mutex<Consumer>>) -> App<'a> {
        App {
-           widgets: AppWidgets {
-                title: UIParagraph::new("", Text::from(vec![
-                    Span::from(APP_NAME).bold().green().into_centered_line(),
-                    Span::from(APP_VERSION).gray().into_centered_line(),
-                ])),
-
-                tabs: UITabs::new("", SelectedTab::VARIANTS),
-                details: UIBlock::new(""),
-                footer: UIParagraph::new("", Text::from(vec![
-                    Span::from(APP_FOOTER).gray().into_centered_line(),
-                ])),
-                broker_list: UIList::new("Brokers", vec![]),
-                consumer_grp_list: UIList::new("Consumer Groups", vec![]),
-                topic_list: UIList::new("Topics", vec![]),
-                partition_list: UIList::new("Partitions", vec![]),
-                component_details: UIParagraphWithScrollbar::new("Details", "".into(), ScrollbarOrientation::VerticalRight),
-           },
+           layout: AppLayout::new(),
            state: AppState {
                 selected_tab: SelectedTab::default(),
                 should_quit: false,
@@ -199,41 +290,7 @@ impl App<'_> {
     }
 
     async fn handle_tab(&mut self) {
-        self.widgets.tabs.handle_tab();
-
-       /* match self.state.selected_block {
-            SelectedBlock::NONE | SelectedBlock::DETAILS => {
-                if self.widgets.namespace_list.state().is_none() {
-                    self.widgets.namespace_list.select(Some(0));
-                }
-                self.state.selected_block = SelectedBlock::NAMESPACE;
-                self.widgets.namespace_list.highlight_border();
-                self.widgets.description_paragraph.normalise_border();
-            },
-            SelectedBlock::NAMESPACE => {
-                if self.widgets.kind_list.state().is_none() {
-                    self.widgets.kind_list.select(Some(0));
-                }
-                self.state.selected_block = SelectedBlock::KIND;
-                self.widgets.kind_list.highlight_border();
-                self.widgets.namespace_list.normalise_border();
-            },
-            SelectedBlock::KIND => {
-                if self.widgets.resources_list.state().is_none() {
-                    self.widgets.resources_list.select(Some(0));
-                }
-                self.state.selected_block = SelectedBlock::RESOURCE;
-                self.widgets.resources_list.highlight_border();
-                self.widgets.kind_list.normalise_border();
-            },
-
-            SelectedBlock::RESOURCE => {
-                self.state.selected_block = SelectedBlock::DETAILS;
-                self.widgets.description_paragraph.highlight_border();
-                self.widgets.resources_list.normalise_border();
-            }
-        };
-        */
+        self.layout.tabs_layout.tabs.handle_tab();
     }
 
     async fn handle_list_navigation(&mut self, direction: Direction){
@@ -286,7 +343,7 @@ impl App<'_> {
 impl App<'_> {
     pub fn render(&mut self) {
         let _ = self.terminal.draw(|f| {
-            self.widgets.refresh_layout(f); 
+            self.layout.render(f); 
         });
     }
 }
