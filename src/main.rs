@@ -1,15 +1,16 @@
-use std::{error::Error, sync::Arc, io::Stderr};
+use std::{error::Error, io::Stderr, time::Duration, thread};
 
 use clap::Parser;
-use rdkafka::{ClientConfig, Message};
+use crossbeam::channel::bounded;
+use kafka::consumer::StatsContext;
+use rdkafka::{ClientConfig, Message, consumer::{DefaultConsumerContext, ConsumerContext}, Statistics, ClientContext};
 use crossterm::{terminal::{enable_raw_mode, EnterAlternateScreen, disable_raw_mode, LeaveAlternateScreen}, execute};
 use ratatui::{prelude::CrosstermBackend, Terminal};
-use tokio::{time, sync::Mutex};
+use tokio::time;
 use tui::{app::App, events};
 
 use crate::kafka::consumer::{Consumer, Result as ConsumerResult};
 use crate::config::Config;
-
 
 mod kafka;
 mod cmd;
@@ -23,58 +24,62 @@ async fn main() -> Result<(), Box<dyn Error>> {
     
     // Parsing config from command line args
     let config = Config::parse();
-    let client_config: ClientConfig = match config.try_into() {
-        Ok(c) => c,
-        Err(err) => {
-            log::error!("Unable to parse config: {}", err);
-            return Ok(());
-        }
-    }; 
+    let client_config: ClientConfig = config.try_into().unwrap();
 
-    // Setup Kafka consumer
-    log::info!("creating new consumer");
-    let consumer = match Consumer::new(&client_config){
-        Ok(c) => c,
-        Err(err) => {
-            print!("{:?}",err);
-            return Ok(());
-        }
-    };
+    // Setup Kafka consumer to consume messages
+    log::info!("creating new kafka consumer to consume messages");
+    let mut message_consumer = Consumer::new(&client_config, DefaultConsumerContext).unwrap();
+    let _ = message_consumer.fetch_metadata();
 
-
-    let consumer = Arc::new(Mutex::new(consumer));
-    let consumer_clone = consumer.clone();
-
+    let (stats_sender, stats_receiver) = bounded::<Statistics>(5);
+        
+    //Another consumer to fetch metadata and stats
+    log::info!("creating a new consumer to consumer metadata and stats");
+    let mut stats_consumer = Consumer::new(&client_config, StatsContext::new(stats_sender)).unwrap();
+    
     let handle = tokio::spawn(async move {
         loop {
-            let mut consumer_guard = consumer_clone.lock().await;
-            let _ = consumer_guard.fetch_metadata();
-            let refresh_time = consumer_guard.refresh_metadata_in_secs;
-            drop(consumer_guard);
+            // fetch metadata
+            let _ = stats_consumer.fetch_metadata();
+            let refresh_time = stats_consumer.refresh_metadata_in_secs;
+            
+            // poll to pull stats
+            let _ = stats_consumer.consume();
 
+            // receive stats
+            match stats_receiver.recv_timeout(Duration::from_secs(1)) {
+                Ok(_) => log::info!("received stats"),
+                Err(_) => ()
+            }
+
+            // sleep
             time::sleep(refresh_time).await;
+
         }
     });
 
-    //setup TUI
-    setup()?;
-
+/*    //setup TUI
+    setup().unwrap();
+    
     // Run TUI
-    let mut t = Terminal::new(CrosstermBackend::new(std::io::stderr()))?;
-    let result = run(&mut t, consumer).await;
+    let mut t = Terminal::new(CrosstermBackend::new(std::io::stderr())).unwrap();
+    let result = run(&mut t, message_consumer).await;
 
     // Shutdown TUI
-    shutdown()?;
-    result?;
-
+    shutdown().unwrap();    
+    result.unwrap(); 
     // Handle
     drop(handle);
     Ok(())
+*/
+
+    loop {
+        thread::sleep(Duration::from_secs(1));
+    }
 
 
 
-
-/*    let metadata = match consumer.metadata() {
+        /*    let metadata = match consumer.metadata() {
         Ok(m) => m,
         Err(err) => {
             print!("{:?}",err);
@@ -151,7 +156,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     */
  } 
 
-fn consume(consumer: &Consumer) -> ConsumerResult<()> {
+fn consume<T: ClientContext + ConsumerContext>(consumer: &Consumer<T>) -> ConsumerResult<()> {
     match consumer.consume() {
         Ok(opt_message) => {
             if let Some(msg) = opt_message {
@@ -181,7 +186,7 @@ fn shutdown() -> Result<(), Box<dyn Error>> {
   Ok(())
 }
 
-async fn run<'a>(t: &'a mut Terminal<CrosstermBackend<Stderr>>, consumer: Arc<Mutex<Consumer>>) -> Result<(), Box<dyn Error>> {
+async fn run<'a, T: ClientContext + ConsumerContext>(t: &'a mut Terminal<CrosstermBackend<Stderr>>, consumer: Consumer<T>) -> Result<(), Box<dyn Error>> {
     // ratatui terminal
     let mut app = App::new(t, consumer).await;
     let mut events = events::EventHandler::new(1.0, 30.0);

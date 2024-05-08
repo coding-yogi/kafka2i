@@ -1,9 +1,8 @@
 use std::io::Stderr;
-use std::sync::Arc;
 use crossterm::event::{KeyEventKind, KeyCode};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use tokio::sync::Mutex;
+use rdkafka::{ClientContext, consumer::ConsumerContext};
 
 use crate::kafka::consumer::Consumer;
 use crate::tui::events::TuiEvent;
@@ -22,16 +21,20 @@ struct AppState {
 // State of the app itself
 // Event Handler to update the state of the app or the undelying widget
 // And a Kafka client
-pub struct App<'a> {
+pub struct App<'a, T> 
+where T: ClientContext + ConsumerContext
+{
     layout: AppLayout<'a>,
     state: AppState,
     terminal: &'a mut Terminal<CrosstermBackend<Stderr>>,
-    kafka_consumer: Arc<Mutex<Consumer>>,
+    kafka_consumer: Consumer<T>,
 }
 
 // This impl block only defines the new state of the app
-impl <'a> App<'a> {
-    pub async fn new(t: &'a mut Terminal<CrosstermBackend<Stderr>>, kafka_consumer: Arc<Mutex<Consumer>>) -> App<'a> {
+impl <'a, T> App<'a, T> 
+where T: ClientContext + ConsumerContext
+{
+    pub async fn new(t: &'a mut Terminal<CrosstermBackend<Stderr>>, kafka_consumer: Consumer<T>) -> App<'a, T> {
        App {
            layout: AppLayout::new(),
            state: AppState {
@@ -44,7 +47,8 @@ impl <'a> App<'a> {
 }
 
 // This impl block defines all the methods related to state of the app
-impl App<'_> {
+impl <T> App<'_, T>
+where T: ClientContext + ConsumerContext {
     // should_quit is defined at app level so its easier to call from main method
     pub fn should_quit(&self) -> bool {
         self.state.should_quit
@@ -79,15 +83,14 @@ impl App<'_> {
         self.layout.tabs_layout.tabs.handle_tab();
         let selected_tab = SelectedTab::from_repr(self.layout.tabs_layout.tabs.selected()).unwrap();
 
-        let consumer_guard = self.kafka_consumer.lock().await;
 
         match selected_tab {
             SelectedTab::BROKERS => {
-                let broker_names = consumer_guard.metadata().brokers_list();
+                let broker_names = self.kafka_consumer.metadata().brokers_list();
                 self.layout.tabs_layout.broker_layout.brokers_list = UIList::new("Brokers", broker_names);
             },
             SelectedTab::TOPICS => {
-                let topics = consumer_guard.metadata().topics_list();
+                let topics = self.kafka_consumer.metadata().topics_list();
                 self.layout.tabs_layout.topics_layout.topics_list = UIList::new("Topics", topics);
             },
             _ => ()
@@ -110,7 +113,9 @@ impl App<'_> {
 }
 
 // this impl block handles app rendering logic
-impl App<'_> {
+impl <T> App<'_, T> 
+where T: ClientContext + ConsumerContext
+{
     pub fn render(&mut self) {
         let _ = self.terminal.draw(|f| {
             self.layout.render(f); 

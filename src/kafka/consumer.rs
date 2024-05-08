@@ -1,16 +1,17 @@
-use std::{ time::Duration, fmt::Display};
+use std::{ time::Duration, fmt::Display, error::Error};
 
+use crossbeam::channel::Sender;
 use rdkafka::{
     consumer::{
         base_consumer::BaseConsumer, 
-        Consumer as KafkaConsumer, 
+        Consumer as KafkaConsumer, ConsumerContext, 
     }, 
     ClientConfig, 
     util::Timeout, 
     error::KafkaError, 
     message::BorrowedMessage, 
     Offset, 
-    TopicPartitionList, config::FromClientConfig, 
+    TopicPartitionList, config::FromClientConfigAndContext, ClientContext, Statistics, 
     
 };
 
@@ -29,6 +30,8 @@ impl Display for ConsumerError {
     }
 }
 
+impl Error for ConsumerError {}
+
 impl From<KafkaError> for ConsumerError {
     fn from(value: KafkaError) -> Self {
         ConsumerError {
@@ -37,23 +40,46 @@ impl From<KafkaError> for ConsumerError {
     }
 }
 
+pub struct StatsContext {
+   stats_sender: Sender<Statistics> 
+}
+
+impl StatsContext {
+    pub fn new(stats_sender: Sender<Statistics>) -> StatsContext {
+        StatsContext {
+            stats_sender
+        }
+    }
+}
+
+impl ConsumerContext for StatsContext {}
+
+impl ClientContext for StatsContext {
+    fn stats(&self, statistics: rdkafka::Statistics) {
+      let _ =  self.stats_sender.send(statistics); 
+    }
+}
+
 const DEFAULT_TIMEOUT_IN_SECS: Duration = Duration::from_secs(30);
-const DEFAULT_REFRESH_METADATA_IN_SECS: Duration = Duration::from_secs(30);
+const DEFAULT_REFRESH_METADATA_IN_SECS: Duration = Duration::from_secs(10);
 
 // Wraps Kafka Consumer from the lib
-pub struct Consumer {
-    base_consumer: BaseConsumer,
+pub struct Consumer<T>
+where T: ClientContext + ConsumerContext {
+    base_consumer: BaseConsumer<T>,
     default_timeout_in_secs: Timeout,
     pub refresh_metadata_in_secs: Duration,
     metadata: Metadata
 }
-
-impl Consumer {
+ 
+impl <T> Consumer<T> 
+where T: ClientContext + ConsumerContext 
+{
 
     // New Consumer
-    pub fn new(config: &ClientConfig) -> Result<Consumer> {
+    pub fn new(config: &ClientConfig, context: T) -> Result<Consumer<T>> {
         // Base Consumer
-        let base_consumer = BaseConsumer::from_config(config)?;
+        let base_consumer = BaseConsumer::from_config_and_context(config, context)?;
 
         // Time out
         let default_timeout = Timeout::After(DEFAULT_TIMEOUT_IN_SECS);
@@ -67,9 +93,7 @@ impl Consumer {
 
         Ok(consumer)
     }
-}
 
-impl Consumer{
     // Fetch Metadata
     pub fn fetch_metadata(&mut self) -> Result<()> {
         // Metadata
@@ -85,7 +109,7 @@ impl Consumer{
 
     // Consume
     pub fn consume(&self) -> Result<Option<BorrowedMessage>> {
-        if let Some(msg_result) = self.base_consumer.poll(None) {
+        if let Some(msg_result) = self.base_consumer.poll(Duration::from_secs(0)) {
             let msg = msg_result?;
             return Ok(Some(msg));
         }    

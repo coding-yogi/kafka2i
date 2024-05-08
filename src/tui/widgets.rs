@@ -1,5 +1,5 @@
 use ratatui::{
-    widgets::{List, Block, ListItem, Borders, ListState, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Tabs, Padding}, 
+    widgets::{List, Block, ListItem, Borders, ListState, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Tabs}, 
     text::{self, Span, Text}, style::{Style, Modifier, Color, palette::tailwind}, 
     prelude::Rect, Frame, symbols,
 };
@@ -130,8 +130,7 @@ pub struct UIList <'a> {
 }
 
 impl <'a> UIList <'a> {
-    pub fn new(name: &'a str, items: Vec<String>) -> UIList<'a>
-    { 
+    pub fn new(name: &'a str, items: Vec<String>) -> UIList<'a>{ 
         let items_clone = items.clone();
         let list_items =  items_clone
                 .into_iter()
@@ -166,11 +165,10 @@ impl <'a> UIList <'a> {
         self.state.selected()
     }
 
-
     pub fn handle_navigation(&mut self, direction: Direction) {
         match direction {
             Direction::UP => self.handle_up(),
-            Direction::DOWN => self.handle_down(),
+            Direction::DOWN => self.handle_down(), 
         }
     
     }

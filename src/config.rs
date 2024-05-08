@@ -7,6 +7,7 @@ const BOOTSTRAP_SERVERS: &str = "bootstrap.servers";
 const GROUP_ID: &str = "group.id";
 const SESSION_TIMEOUT_MS: &str = "session.timeout.ms";
 const ENABLE_AUTO_COMMIT: &str = "enable.auto.commit";
+const STATS_INTERVAL_MS: &str = "statistics.interval.ms";
 
 const DEFAULT_GROUP_ID: &str = "cg.krust";
 
@@ -84,6 +85,9 @@ impl TryInto<ClientConfig> for Config {
         } else {
             client_config.set(GROUP_ID.to_string(), DEFAULT_GROUP_ID.to_string());
         }
+
+        // stats interval
+        client_config.set(STATS_INTERVAL_MS, "10000");
         
         Ok(client_config)
     }
