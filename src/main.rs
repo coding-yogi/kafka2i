@@ -1,8 +1,9 @@
-use std::{error::Error, io::Stderr, time::Duration, thread};
+use std::{error::Error, io::Stderr, time::Duration, thread, sync::Arc};
 
 use clap::Parser;
 use crossbeam::channel::bounded;
 use kafka::consumer::StatsContext;
+use parking_lot::Mutex;
 use rdkafka::{ClientConfig, Message, consumer::{DefaultConsumerContext, ConsumerContext}, Statistics, ClientContext};
 use crossterm::{terminal::{enable_raw_mode, EnterAlternateScreen, disable_raw_mode, LeaveAlternateScreen}, execute};
 use ratatui::{prelude::CrosstermBackend, Terminal};
@@ -28,8 +29,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Setup Kafka consumer to consume messages
     log::info!("creating new kafka consumer to consume messages");
-    let mut message_consumer = Consumer::new(&client_config, DefaultConsumerContext).unwrap();
-    let _ = message_consumer.fetch_metadata();
+    let message_consumer = Arc::new(Mutex::new(Consumer::new(&client_config, DefaultConsumerContext).unwrap()));
+    let _ = message_consumer.lock().fetch_metadata();
+
+    // Clone
+    let message_consumer_clone = message_consumer.clone();
 
     let (stats_sender, stats_receiver) = bounded::<Statistics>(5);
         
@@ -48,7 +52,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
             // receive stats
             match stats_receiver.recv_timeout(Duration::from_secs(1)) {
-                Ok(_) => log::info!("received stats"),
+                Ok(s) => {
+                    //Update stats for message consumer
+                    message_consumer_clone.lock().update_stats(s);
+                },
                 Err(_) => ()
             }
 
@@ -58,7 +65,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     });
 
-/*    //setup TUI
+    //setup TUI
     setup().unwrap();
     
     // Run TUI
@@ -71,15 +78,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Handle
     drop(handle);
     Ok(())
-*/
 
+
+
+/*
     loop {
         thread::sleep(Duration::from_secs(1));
     }
 
-
-
-        /*    let metadata = match consumer.metadata() {
+    let metadata = match consumer.metadata() {
         Ok(m) => m,
         Err(err) => {
             print!("{:?}",err);
@@ -186,7 +193,7 @@ fn shutdown() -> Result<(), Box<dyn Error>> {
   Ok(())
 }
 
-async fn run<'a, T: ClientContext + ConsumerContext>(t: &'a mut Terminal<CrosstermBackend<Stderr>>, consumer: Consumer<T>) -> Result<(), Box<dyn Error>> {
+async fn run<'a, T: ClientContext + ConsumerContext>(t: &'a mut Terminal<CrosstermBackend<Stderr>>, consumer: Arc<Mutex<Consumer<T>>>) -> Result<(), Box<dyn Error>> {
     // ratatui terminal
     let mut app = App::new(t, consumer).await;
     let mut events = events::EventHandler::new(1.0, 30.0);

@@ -1,13 +1,16 @@
-use std::io::Stderr;
+use std::{io::Stderr, sync::Arc};
 use crossterm::event::{KeyEventKind, KeyCode};
+use parking_lot::Mutex;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
+use ratatui::widgets::ScrollbarOrientation;
 use rdkafka::{ClientContext, consumer::ConsumerContext};
 
-use crate::kafka::consumer::Consumer;
+use crate::kafka::{consumer::Consumer, stats::Stats};
 use crate::tui::events::TuiEvent;
 use crate::tui::widgets::Direction;
 
+use super::widgets::UIParagraphWithScrollbar;
 use super::{layout::{AppLayout, SelectedTab}, widgets::UIList};
 
 // App state maintains the state at app level
@@ -27,14 +30,14 @@ where T: ClientContext + ConsumerContext
     layout: AppLayout<'a>,
     state: AppState,
     terminal: &'a mut Terminal<CrosstermBackend<Stderr>>,
-    kafka_consumer: Consumer<T>,
+    kafka_consumer: Arc<Mutex<Consumer<T>>>,
 }
 
 // This impl block only defines the new state of the app
 impl <'a, T> App<'a, T> 
 where T: ClientContext + ConsumerContext
 {
-    pub async fn new(t: &'a mut Terminal<CrosstermBackend<Stderr>>, kafka_consumer: Consumer<T>) -> App<'a, T> {
+    pub async fn new(t: &'a mut Terminal<CrosstermBackend<Stderr>>, kafka_consumer: Arc<Mutex<Consumer<T>>>) -> App<'a, T> {
        App {
            layout: AppLayout::new(),
            state: AppState {
@@ -86,11 +89,11 @@ where T: ClientContext + ConsumerContext {
 
         match selected_tab {
             SelectedTab::BROKERS => {
-                let broker_names = self.kafka_consumer.metadata().brokers_list();
+                let broker_names = self.kafka_consumer.lock().stats().brokers_list();
                 self.layout.tabs_layout.broker_layout.brokers_list = UIList::new("Brokers", broker_names);
             },
             SelectedTab::TOPICS => {
-                let topics = self.kafka_consumer.metadata().topics_list();
+                let topics = self.kafka_consumer.lock().stats().topics_list();
                 self.layout.tabs_layout.topics_layout.topics_list = UIList::new("Topics", topics);
             },
             _ => ()
@@ -102,7 +105,15 @@ where T: ClientContext + ConsumerContext {
         let selected_tab = SelectedTab::from_repr(self.layout.tabs_layout.tabs.selected()).unwrap();
 
         match selected_tab {
-            SelectedTab::BROKERS => self.layout.tabs_layout.broker_layout.brokers_list.handle_navigation(direction),
+            SelectedTab::BROKERS => {
+                self.layout.tabs_layout.broker_layout.brokers_list.handle_navigation(direction);
+                if let Some(broker_name) = self.layout.tabs_layout.broker_layout.brokers_list.selected_item() {
+                    let broker = self.kafka_consumer.lock().stats().get_broker(&broker_name).unwrap();
+                    let text = format!("ID:{}\nName: {}\nState: {}", broker.id(), broker.name(), broker.state());
+                    self.layout.tabs_layout.broker_layout.broker_details = UIParagraphWithScrollbar::new("Details", text.into(), ScrollbarOrientation::VerticalRight)
+                }
+
+            },
             SelectedTab::CONSUMERGROUPS => self.layout.tabs_layout.cg_layout.cg_list.handle_navigation(direction),
             SelectedTab::TOPICS => self.layout.tabs_layout.topics_layout.topics_list.handle_navigation(direction),
         }

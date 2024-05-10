@@ -1,5 +1,5 @@
-
 use rdkafka::{metadata::{Metadata as KafkaMetadata, MetadataTopic, MetadataPartition, MetadataBroker}};
+use rdkafka::{statistics::{Broker as StatsBroker, Topic as StatsTopic, Partition as StatsPartition}};
 
 pub struct Metadata {
     brokers: Vec<Broker>,
@@ -34,7 +34,7 @@ impl Metadata {
 
     pub fn brokers_list(&self) -> Vec<String> {
         self.brokers.iter()
-            .map(|b| b.name())
+            .map(|b| b.name().to_string())
             .collect()
     }
 
@@ -45,41 +45,53 @@ impl Metadata {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Broker {
     id: i32,
-    host: String,
-    port: i32,
+    name: String,
+    state: String,
 }
 
 impl Broker {
     pub fn new(id: i32, host: &str, port: i32) -> Broker {
         Broker {
             id,
-            host: host.to_string(),    
-            port,
+            name: format!("{}:{}/{}", host.to_string(), port, id),    
+            state: "".to_string(),
+
         }
     }
 
-    pub fn name(&self) -> String {
-        format!("{}:{} - {}", self.host, self.port, self.id())
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     pub fn id(&self) -> i32 {
         self.id
     }
+
+    pub fn state(&self) -> &str {
+        &self.state
+    }
 }
 
 impl From<&MetadataBroker> for Broker {
     fn from(value: &MetadataBroker) -> Self {
-        Broker { 
-            id: value.id(), 
-            host: value.host().to_string(), 
-            port: value.port() 
+        Broker::new(value.id(), value.host(), value.port())
+    }
+}
+
+impl From<&StatsBroker> for Broker {
+    fn from(value: &StatsBroker) -> Self {
+        Broker {
+            id: value.nodeid,
+            name: value.name.clone(),
+            state: value.state.clone(),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Topic {
     name: String,
     partitions: Vec<Partition>,
@@ -97,7 +109,6 @@ impl Topic {
 
 impl From<&MetadataTopic> for Topic {
     fn from(value: &MetadataTopic) -> Self {
-
         let mut partitions = vec![];
 
         let partitions_metadata = value.partitions();
@@ -112,7 +123,23 @@ impl From<&MetadataTopic> for Topic {
     }
 }
 
-#[derive(Debug)]
+impl From<&StatsTopic> for Topic {
+    fn from(value: &StatsTopic) -> Self {
+       let mut partitions = vec![];
+
+       let partition_stats = &value.partitions;
+       for (_, v) in partition_stats {
+           partitions.push(v.into());
+       }
+
+       Topic {
+           name: value.topic.clone(),
+           partitions
+       }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Partition {
     id: i32,
     leader: i32,
@@ -133,6 +160,17 @@ impl From<&MetadataPartition> for Partition {
             leader: value.leader(), 
             isr: value.isr().to_vec(),
             replicas: value.replicas().to_vec() 
+        }
+    }
+}
+
+impl From<&StatsPartition> for Partition {
+    fn from(value: &StatsPartition) -> Self {
+        Partition {
+            id: value.partition,
+            leader: value.leader,
+            isr: vec![],
+            replicas: vec![],
         }
     }
 }

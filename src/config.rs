@@ -87,7 +87,7 @@ impl TryInto<ClientConfig> for Config {
         }
 
         // stats interval
-        client_config.set(STATS_INTERVAL_MS, "10000");
+        client_config.set(STATS_INTERVAL_MS, "5000");
         
         Ok(client_config)
     }

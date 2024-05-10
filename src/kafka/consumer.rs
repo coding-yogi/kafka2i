@@ -11,8 +11,7 @@ use rdkafka::{
     error::KafkaError, 
     message::BorrowedMessage, 
     Offset, 
-    TopicPartitionList, config::FromClientConfigAndContext, ClientContext, Statistics, 
-    
+    TopicPartitionList, config::FromClientConfigAndContext, ClientContext, Statistics,
 };
 
 use crate::kafka::metadata::{Metadata, Topic};
@@ -69,7 +68,8 @@ where T: ClientContext + ConsumerContext {
     base_consumer: BaseConsumer<T>,
     default_timeout_in_secs: Timeout,
     pub refresh_metadata_in_secs: Duration,
-    metadata: Metadata
+    metadata: Metadata,
+    stats: Statistics,
 }
  
 impl <T> Consumer<T> 
@@ -89,6 +89,7 @@ where T: ClientContext + ConsumerContext
             default_timeout_in_secs: default_timeout,
             refresh_metadata_in_secs: DEFAULT_REFRESH_METADATA_IN_SECS,
             metadata: Metadata::new(),
+            stats: Statistics::default(),
         };
 
         Ok(consumer)
@@ -105,6 +106,16 @@ where T: ClientContext + ConsumerContext
     // Return Metadata
     pub fn metadata(&self) -> &Metadata {
         &self.metadata
+    }
+
+    // Update stats
+    pub fn update_stats(&mut self, stats: Statistics) {
+        self.stats = stats
+    }
+
+    // Stats
+    pub fn stats(&self) -> &Statistics {
+        &self.stats
     }
 
     // Consume
