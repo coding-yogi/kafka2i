@@ -1,13 +1,11 @@
 use ratatui::{
-    widgets::{List, Block, ListItem, Borders, ListState, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Tabs}, 
+    widgets::{List, Block, ListItem, Borders, ListState, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Tabs, Table, Row}, 
     text::{self, Span, Text}, style::{Style, Modifier, Color, palette::tailwind}, 
-    prelude::Rect, Frame, symbols,
+    prelude::Rect, Frame, symbols, layout::Constraint,
 };
-
 
 const HIGHLIGHT_COLOR: Color = Color::Yellow;
 const NORMAL_COLOR: Color = Color::Green;
-
 
 pub enum Direction {
     UP,
@@ -19,7 +17,6 @@ pub trait AppWidget {
     fn highlight_border(&mut self);
     fn normalise_border(&mut self);
 }
-
 
 // UIWidget contains the specific widget type and the Rect which holds the Widget
 #[derive(Clone)]
@@ -132,21 +129,24 @@ pub struct UIList <'a> {
 impl <'a> UIList <'a> {
     pub fn new(name: &'a str, items: Vec<String>) -> UIList<'a>{ 
         let items_clone = items.clone();
-        let list_items =  items_clone
-                .into_iter()
-                .map(|i| ListItem::new(vec![text::Line::from(Span::raw(i))]))
-                .collect::<Vec<ListItem>>();
-
+        let list_items = get_list_items(items_clone);
+        
         UIList {
             name,
             items,
-            list: List::new(list_items)
-                .block(create_block(NORMAL_COLOR, name, true))
-                .highlight_style(Style::default().add_modifier(Modifier::BOLD).fg(HIGHLIGHT_COLOR))
-                .highlight_symbol("> "),
+            list: get_list(name, list_items),
             state: ListState::default(),
             area: Rect::default(),
         }
+    }
+
+    pub fn update(&mut self, items: Vec<String>) {
+        let items_clone = items.clone();
+        let list_items = get_list_items(items_clone);
+
+        self.items = items;
+        self.list = get_list(self.name, list_items);
+        self.state = ListState::default();
     }
     
     pub fn select(&mut self, idx: Option<usize>) {
@@ -170,7 +170,6 @@ impl <'a> UIList <'a> {
             Direction::UP => self.handle_up(),
             Direction::DOWN => self.handle_down(), 
         }
-    
     }
 
     pub fn handle_down(&mut self) {
@@ -197,6 +196,21 @@ impl <'a> UIList <'a> {
         }
     }
 }
+
+fn get_list_items(items: Vec<String>) -> Vec<ListItem<'static>> {
+    items
+        .into_iter()
+        .map(|i| ListItem::new(vec![text::Line::from(Span::raw(i))]))
+        .collect::<Vec<ListItem>>()
+}
+
+fn get_list<'a>(name: &'a str, list_items: Vec<ListItem<'a>>) -> List<'a> {
+    List::new(list_items)
+        .block(create_block(NORMAL_COLOR, name, true))
+        .highlight_style(Style::default().add_modifier(Modifier::BOLD).fg(HIGHLIGHT_COLOR))
+        .highlight_symbol("> ")
+}
+
 
 impl <'a> AppWidget for UIList<'a> {
     fn render(&mut self, frame: &mut Frame, area: Rect) {
@@ -227,6 +241,12 @@ impl <'a> UIParagraphWithScrollbar<'a> {
             paragraph: UIParagraph::new(name, text),
             scrollbar: UIScrollbar::new(orientation, content_length),
         }
+    }
+
+    pub fn update(&mut self, text: Text<'a>) {
+        let content_length = text.lines.len();
+        self.paragraph.update(text); 
+        self.scrollbar.update(content_length);
     }
 
     pub fn handle_down(&mut self) {
@@ -270,6 +290,10 @@ impl <'a> UIParagraph<'a> {
             paragraph: Paragraph::new(text).block(create_block(NORMAL_COLOR, name, true)),
             area: Rect::default()
         }
+    }
+
+    pub fn update(&mut self, text: Text<'a>) {
+        self.paragraph = Paragraph::new(text).block(create_block(NORMAL_COLOR, self.name, true))
     }
 
     pub fn scroll(&mut self, offset: (u16, u16)) {
@@ -321,6 +345,11 @@ impl <'a> UIScrollbar<'a> {
         }
     }
 
+    pub fn update(&mut self, content_length: usize) {
+        self.state = ScrollbarState::new(content_length);
+        self.scroll_state = 0;
+    }
+
     pub fn handle_down(&mut self) {
         self.scroll_state = self.scroll_state.saturating_add(1);
         self.state = self.state.position(self.scroll_state.into());
@@ -345,4 +374,26 @@ impl <'a> AppWidget for UIScrollbar<'a> {
     }
 }
 
+#[derive(Clone)]
+pub struct UITable<'a> {
+    table : Table<'a>,
+}
+
+impl <'a> UITable<'a> {
+    pub fn new(columns: Vec<&'a str>, column_widths: &'a[u16], data: Vec<Vec<String>>) -> UITable<'a> {
+        let mut constraints = vec![];
+        for column_width in column_widths {
+            constraints.push(Constraint::Percentage(*column_width))
+        }
+
+        let mut rows: Vec<Row> = vec![];
+        for data_row in data {
+            rows.push(Row::new(data_row));
+        }
+
+        UITable {
+            table: Table::new(rows, constraints).header(Row::new(columns))
+        }
+    }
+}
 

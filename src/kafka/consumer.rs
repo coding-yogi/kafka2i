@@ -16,6 +16,8 @@ use rdkafka::{
 
 use crate::kafka::metadata::{Metadata, Topic};
 
+use super::metadata::ConsumerGroup;
+
 pub type Result<T> = std::result::Result<T, ConsumerError>;
 
 #[derive(Debug, Clone)]
@@ -99,7 +101,9 @@ where T: ClientContext + ConsumerContext
     pub fn fetch_metadata(&mut self) -> Result<()> {
         // Metadata
         let kafka_metadata = self.base_consumer.fetch_metadata(None, self.default_timeout_in_secs)?; 
-        self.metadata.update(&kafka_metadata);
+        let consumer_groups = self.fetch_groups()?;
+
+        self.metadata.update(&kafka_metadata, consumer_groups);
         Ok(())
     }
 
@@ -184,13 +188,12 @@ where T: ClientContext + ConsumerContext
         Ok(())
     }
 
-    pub fn groups(&self) -> Result<()>{
+    fn fetch_groups(&mut self) -> Result<Vec<ConsumerGroup>>{
         let group_list = self.base_consumer.fetch_group_list(None, self.default_timeout_in_secs)?;
-        for group in group_list.groups() {
-            log::info!("group name : {} , state: {}, proto: {}", group.name(), group.state(), group.protocol());
-        }
 
-        Ok(())
+        Ok(group_list.groups().iter()
+            .map(|g| g.into())
+            .collect::<Vec<ConsumerGroup>>())
     }
 }
 

@@ -6,12 +6,13 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::widgets::ScrollbarOrientation;
 use rdkafka::{ClientContext, consumer::ConsumerContext};
 
+use crate::kafka::metadata;
 use crate::kafka::{consumer::Consumer, stats::Stats};
 use crate::tui::events::TuiEvent;
 use crate::tui::widgets::Direction;
 
 use super::widgets::UIParagraphWithScrollbar;
-use super::{layout::{AppLayout, SelectedTab}, widgets::UIList};
+use super::single_layout::AppLayout;
 
 // App state maintains the state at app level
 struct AppState {
@@ -38,8 +39,11 @@ impl <'a, T> App<'a, T>
 where T: ClientContext + ConsumerContext
 {
     pub async fn new(t: &'a mut Terminal<CrosstermBackend<Stderr>>, kafka_consumer: Arc<Mutex<Consumer<T>>>) -> App<'a, T> {
-       App {
-           layout: AppLayout::new(),
+       
+       let metadata = kafka_consumer.lock().metadata().clone();
+
+        App {
+           layout: AppLayout::new(&metadata),
            state: AppState {
                 should_quit: false,
            },
@@ -83,43 +87,12 @@ where T: ClientContext + ConsumerContext {
 
     // Handles tab event which switches between the available tabs
     async fn handle_tab(&mut self) {
-        self.layout.tabs_layout.tabs.handle_tab();
-        let selected_tab = SelectedTab::from_repr(self.layout.tabs_layout.tabs.selected()).unwrap();
-
-
-        match selected_tab {
-            SelectedTab::BROKERS => {
-                let broker_names = self.kafka_consumer.lock().stats().brokers_list();
-                self.layout.tabs_layout.broker_layout.brokers_list = UIList::new("Brokers", broker_names);
-            },
-            SelectedTab::TOPICS => {
-                let topics = self.kafka_consumer.lock().stats().topics_list();
-                self.layout.tabs_layout.topics_layout.topics_list = UIList::new("Topics", topics);
-            },
-            _ => ()
-        }
+    
     }
 
     // Handles the list navigation for the list in focus 
     async fn handle_list_navigation(&mut self, direction: Direction){
-        let selected_tab = SelectedTab::from_repr(self.layout.tabs_layout.tabs.selected()).unwrap();
-
-        match selected_tab {
-            SelectedTab::BROKERS => {
-                self.layout.tabs_layout.broker_layout.brokers_list.handle_navigation(direction);
-                if let Some(broker_name) = self.layout.tabs_layout.broker_layout.brokers_list.selected_item() {
-                    let broker = self.kafka_consumer.lock().stats().get_broker(&broker_name).unwrap();
-                    let text = format!("ID:{}\nName: {}\nState: {}", broker.id(), broker.name(), broker.state());
-                    self.layout.tabs_layout.broker_layout.broker_details = UIParagraphWithScrollbar::new("Details", text.into(), ScrollbarOrientation::VerticalRight)
-                }
-
-            },
-            SelectedTab::CONSUMERGROUPS => self.layout.tabs_layout.cg_layout.cg_list.handle_navigation(direction),
-            SelectedTab::TOPICS => self.layout.tabs_layout.topics_layout.topics_list.handle_navigation(direction),
-        }
-
-        // TODO: Handle population of details as per the option selected on the list
-              
+            // TODO: Handle population of details as per the option selected on the list
     }
 }
 

@@ -35,15 +35,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Clone
     let message_consumer_clone = message_consumer.clone();
 
-    let (stats_sender, stats_receiver) = bounded::<Statistics>(5);
+    //let (stats_sender, stats_receiver) = bounded::<Statistics>(5);
         
     //Another consumer to fetch metadata and stats
-    log::info!("creating a new consumer to consumer metadata and stats");
-    let mut stats_consumer = Consumer::new(&client_config, StatsContext::new(stats_sender)).unwrap();
+    // log::info!("creating a new consumer to consumer metadata and stats");
+    // let mut stats_consumer = Consumer::new(&client_config, StatsContext::new(stats_sender)).unwrap();
     
     let handle = tokio::spawn(async move {
         loop {
-            // fetch metadata
+            
+        /*
+            //fetch metadata
             let _ = stats_consumer.fetch_metadata();
             let refresh_time = stats_consumer.refresh_metadata_in_secs;
             
@@ -54,10 +56,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
             match stats_receiver.recv_timeout(Duration::from_secs(1)) {
                 Ok(s) => {
                     //Update stats for message consumer
+                    log::info!("{:?}", s);
                     message_consumer_clone.lock().update_stats(s);
                 },
                 Err(_) => ()
             }
+        */
+            let _ = message_consumer_clone.lock().fetch_metadata();
+            let refresh_time = message_consumer_clone.lock().refresh_metadata_in_secs;
 
             // sleep
             time::sleep(refresh_time).await;

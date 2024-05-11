@@ -1,9 +1,12 @@
-use rdkafka::{metadata::{Metadata as KafkaMetadata, MetadataTopic, MetadataPartition, MetadataBroker}};
-use rdkafka::{statistics::{Broker as StatsBroker, Topic as StatsTopic, Partition as StatsPartition}};
+use rdkafka::groups::{GroupInfo, GroupMemberInfo};
+use rdkafka::metadata::{Metadata as KafkaMetadata, MetadataTopic, MetadataPartition, MetadataBroker};
+use rdkafka::statistics::{Broker as StatsBroker, Topic as StatsTopic, Partition as StatsPartition};
 
+#[derive(Debug, Clone)]
 pub struct Metadata {
     brokers: Vec<Broker>,
     topics: Vec<Topic>,
+    consumer_groups: Vec<ConsumerGroup>
 }
 
 impl Metadata {
@@ -12,37 +15,56 @@ impl Metadata {
         Metadata {
             brokers: vec![],
             topics: vec![],
+            consumer_groups: vec![],
         }
     }
 
-    pub fn update(&mut self, metadata: &KafkaMetadata) {
-        let mut brokers = vec![];
-        let brokers_metadata = metadata.brokers();
-        for b in brokers_metadata {
-            brokers.push(b.into())
-        }
- 
-        let mut topics = vec![];
-        let topics_metadata = metadata.topics();
-        for t in topics_metadata {
-           topics.push(t.into()) 
-        }
+    pub fn update(&mut self, metadata: &KafkaMetadata, consumer_groups: Vec<ConsumerGroup>) {
+       self.brokers =  metadata.brokers().iter()
+            .map(|b| b.into())
+            .collect::<Vec<Broker>>();
 
-        self.brokers = brokers;
-        self.topics = topics;
+        self.topics = metadata.topics().iter()
+            .map(|t| t.into())
+            .collect::<Vec<Topic>>();
+
+        self.consumer_groups = consumer_groups;
     }
 
     pub fn brokers_list(&self) -> Vec<String> {
         self.brokers.iter()
-            .map(|b| b.name().to_string())
+            .map(|b| b.name.clone())
             .collect()
     }
 
     pub fn topics_list(&self) -> Vec<String> {
         self.topics.iter()
-            .map(|t| t.name().to_string())
+            .map(|t| t.name.clone())
             .collect()
     }
+
+    pub fn consumer_group_lists(&self) -> Vec<String> {
+        self.consumer_groups.iter()
+            .map(|g| g.name.clone())
+            .collect()
+    }
+
+    pub fn get_broker(&self, name: &str) -> Option<Broker> {
+        if let Some(broker) = self.brokers.iter().find(|b| b.name == name) {
+            return Some((*broker).clone())
+        }
+
+        return None
+    }
+
+    fn get_topic(&self, name: &str) -> Option<Topic> {
+        if let Some(t) = self.topics.iter().find(|t| t.name() == name) {
+            return Some((*t).clone())
+        }
+
+        return None;
+    }
+
 }
 
 #[derive(Debug, Clone)]
@@ -175,4 +197,45 @@ impl From<&StatsPartition> for Partition {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct ConsumerGroup {
+    name: String,
+    members: Vec<ConsumerGroupMember>,
+    state: String,
+}
+
+impl ConsumerGroup {
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+impl From<&GroupInfo> for ConsumerGroup {
+    fn from(value: &GroupInfo) -> Self {
+
+        let members = value.members().iter()
+            .map(|m| m.into())
+            .collect::<Vec<ConsumerGroupMember>>();
+
+        ConsumerGroup {
+            name: value.name().to_string(),
+            members,
+            state: value.state().to_string()
+        }
+    }
+}
+
+
+#[derive(Debug, Clone)]
+pub struct ConsumerGroupMember {
+    id: String,
+}
+
+impl From<&GroupMemberInfo> for ConsumerGroupMember {
+    fn from(value: &GroupMemberInfo) -> Self {
+        ConsumerGroupMember {
+            id: value.id().to_string()
+        }
+    }
+}
 
