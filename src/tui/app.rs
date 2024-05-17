@@ -5,19 +5,49 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::widgets::ScrollbarOrientation;
 use rdkafka::{ClientContext, consumer::ConsumerContext};
+use strum::{EnumIter, FromRepr, EnumProperty, EnumCount, Display};
 
 use crate::kafka::metadata;
 use crate::kafka::{consumer::Consumer, stats::Stats};
 use crate::tui::events::TuiEvent;
-use crate::tui::widgets::Direction;
+use crate::tui::widgets::{Direction, AppWidget};
 
 use super::widgets::UIParagraphWithScrollbar;
 use super::single_layout::AppLayout;
+
+#[derive(Clone, Display, EnumIter, FromRepr, Default, EnumCount)]
+enum SelectedBlock {
+    #[default]
+    #[strum(to_string = "Brokers")]
+    Brokers = 1,
+
+    #[strum(to_string = "Consumer Groups")]
+    ConsumerGroups = 2,
+
+    #[strum(to_string = "Topics")]
+    Topics = 3,
+
+    #[strum(to_string = "Partitions")]
+    Partitions = 4
+}
+
+impl SelectedBlock {
+    fn next(self) -> Self {
+        let idx = self as usize;
+        let next_idx = idx.saturating_add(1);
+
+        // this unwrap won't panic as idx has been handled
+        SelectedBlock::from_repr(next_idx).unwrap_or(SelectedBlock::default())
+    }
+}
 
 // App state maintains the state at app level
 struct AppState {
     // should quit tells the main loop to terminate the app
     should_quit: bool,
+
+    // List selected 
+    selected_block: SelectedBlock,
 }
 
 // App is the high level struct containing
@@ -46,6 +76,7 @@ where T: ClientContext + ConsumerContext
            layout: AppLayout::new(&metadata),
            state: AppState {
                 should_quit: false,
+                selected_block: SelectedBlock::default(),
            },
            terminal: t,
            kafka_consumer,
@@ -87,12 +118,15 @@ where T: ClientContext + ConsumerContext {
 
     // Handles tab event which switches between the available tabs
     async fn handle_tab(&mut self) {
-    
+        //normalize border of current list and highlight of next list
+        self.layout.main_layout.lists_layout.get_list_by_name(&self.state.selected_block.to_string()).unwrap().normalise_border();
+        self.state.selected_block = self.state.selected_block.clone().next();
+        self.layout.main_layout.lists_layout.get_list_by_name(&self.state.selected_block.to_string()).unwrap().highlight_border();
     }
 
     // Handles the list navigation for the list in focus 
     async fn handle_list_navigation(&mut self, direction: Direction){
-            // TODO: Handle population of details as per the option selected on the list
+            self.layout.main_layout.lists_layout.get_list_by_name(&self.state.selected_block.to_string()).unwrap().handle_navigation(direction);
     }
 }
 

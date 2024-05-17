@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use ratatui::{layout::{Constraint, Layout, Rect}, Frame, text::{Text, Span}, widgets::ScrollbarOrientation, style::Stylize};
 use crate::kafka::metadata::Metadata;
 
@@ -6,6 +8,11 @@ use super::widgets::{UIParagraph, UITabs, UIParagraphWithScrollbar, UIList, AppW
 const APP_NAME: &str = "Kafka2i - TUI for Kafka";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const APP_FOOTER: &str = "<TAB> Switch Tabs | <ESC> Quit | <UP/DOWN> Scroll List";
+
+const BROKERS_LIST_NAME: &str = "Brokers";
+const CONSUMER_GROUPS_LIST_NAME: &str = "Consumer Groups";
+const TOPICS_LIST_NAME: &str = "Topics";
+const PARTITIONS_LIST_NAME: &str = "Partitions";
 
 // Top level application layout
 pub struct AppLayout<'a> {
@@ -82,19 +89,23 @@ impl <'a> MainLayout<'a> {
 
 // Brokers Layout
 pub struct ListsLayout<'a> {
-    pub brokers_list: UIList<'a>,
-    pub cg_list: UIList<'a>,
-    pub topics_list: UIList<'a>,
-    pub partitions_list: UIList<'a>
+    pub lists: Vec<UIList<'a>>,
 }
 
 impl <'a> ListsLayout<'a> {
     pub fn new(metadata: &Metadata) -> ListsLayout<'a> {
+        // initlaise all UI Lists
+        let mut lists = vec![];
+        lists.push(UIList::new(BROKERS_LIST_NAME, metadata.brokers_list()));
+        lists.push(UIList::new(CONSUMER_GROUPS_LIST_NAME, metadata.consumer_group_lists()));
+        lists.push(UIList::new(TOPICS_LIST_NAME, metadata.topics_list()));
+        lists.push(UIList::new(PARTITIONS_LIST_NAME, vec![]));
+
+        // highlight first list
+        lists[0].highlight_border();
+
         ListsLayout {
-            brokers_list: UIList::new("Brokers", metadata.brokers_list()),
-            cg_list: UIList::new("Consumer Groups" , metadata.consumer_group_lists()),
-            topics_list: UIList::new("Topics", metadata.topics_list()),
-            partitions_list: UIList::new("Partitions", vec![]),
+            lists
         }
     }
 
@@ -102,10 +113,18 @@ impl <'a> ListsLayout<'a> {
         use Constraint::*;
         let horizontal_layout = Layout::horizontal([Percentage(25), Percentage(25), Percentage(25), Fill(1)]);
         let [brokers_list, cg_list, topic_list, partitions_list] = horizontal_layout.areas(area);
-        self.brokers_list.render(frame, brokers_list);
-        self.cg_list.render(frame, cg_list);
-        self.topics_list.render(frame, topic_list);
-        self.partitions_list.render(frame, partitions_list);
+
+        // it's safe to use index here
+        self.lists[0].render(frame, brokers_list);
+        self.lists[1].render(frame, cg_list);
+        self.lists[2].render(frame, topic_list);
+        self.lists[3].render(frame, partitions_list);
+    }
+
+    pub fn get_list_by_name(&mut self, name: &str) -> Option<&mut UIList<'a>> {
+        self.lists.iter_mut()
+            .filter(|l| l.name() == name)
+            .next()
     }
 }
 

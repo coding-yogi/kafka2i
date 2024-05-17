@@ -140,6 +140,10 @@ impl <'a> UIList <'a> {
         }
     }
 
+    pub fn name(&self) -> &str {
+        self.name
+    }
+
     pub fn update(&mut self, items: Vec<String>) {
         let items_clone = items.clone();
         let list_items = get_list_items(items_clone);

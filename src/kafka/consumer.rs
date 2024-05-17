@@ -103,6 +103,8 @@ where T: ClientContext + ConsumerContext
         let kafka_metadata = self.base_consumer.fetch_metadata(None, self.default_timeout_in_secs)?; 
         let consumer_groups = self.fetch_groups()?;
 
+        log::info!("{:?}", consumer_groups);
+
         self.metadata.update(&kafka_metadata, consumer_groups);
         Ok(())
     }
