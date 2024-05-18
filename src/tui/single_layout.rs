@@ -1,16 +1,14 @@
-use std::collections::HashMap;
-
 use ratatui::{layout::{Constraint, Layout, Rect}, Frame, text::{Text, Span}, widgets::ScrollbarOrientation, style::Stylize};
 use crate::kafka::metadata::Metadata;
 
-use super::widgets::{UIParagraph, UITabs, UIParagraphWithScrollbar, UIList, AppWidget, Direction};
+use super::widgets::{UIParagraph, UIParagraphWithScrollbar, UIList, AppWidget, Direction};
 
 const APP_NAME: &str = "Kafka2i - TUI for Kafka";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const APP_FOOTER: &str = "<TAB> Switch Tabs | <ESC> Quit | <UP/DOWN> Scroll List";
 
 pub const BROKERS_LIST_NAME: &str = "Brokers";
-const CONSUMER_GROUPS_LIST_NAME: &str = "Consumer Groups";
+pub const CONSUMER_GROUPS_LIST_NAME: &str = "Consumer Groups";
 pub const TOPICS_LIST_NAME: &str = "Topics";
 pub const PARTITIONS_LIST_NAME: &str = "Partitions";
 
@@ -89,6 +87,7 @@ impl <'a> MainLayout<'a> {
 
 // Brokers Layout
 pub struct ListsLayout<'a> {
+    selected_list: usize,
     pub lists: Vec<UIList<'a>>,
 }
 
@@ -101,10 +100,12 @@ impl <'a> ListsLayout<'a> {
         lists.push(UIList::new(TOPICS_LIST_NAME, metadata.topics_list()));
         lists.push(UIList::new(PARTITIONS_LIST_NAME, vec![]));
 
-        // highlight first list
-        lists[0].highlight_border();
+        // select and highlight first list
+        let selected_list = 0; 
+        lists[selected_list].highlight_border();
 
         ListsLayout {
+            selected_list,
             lists
         }
     }
@@ -112,13 +113,11 @@ impl <'a> ListsLayout<'a> {
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
         use Constraint::*;
         let horizontal_layout = Layout::horizontal([Percentage(25), Percentage(25), Percentage(25), Fill(1)]);
-        let [brokers_list, cg_list, topic_list, partitions_list] = horizontal_layout.areas(area);
+        let list_areas: [Rect; 4] = horizontal_layout.areas(area);
 
-        // it's safe to use index here
-        self.lists[0].render(frame, brokers_list);
-        self.lists[1].render(frame, cg_list);
-        self.lists[2].render(frame, topic_list);
-        self.lists[3].render(frame, partitions_list);
+        for i in 0..self.lists.len() {
+            self.lists[i].render(frame, list_areas[i]);
+        }
     }
 
     pub fn get_list_by_name(&mut self, name: &str) -> Option<&mut UIList<'a>> {
@@ -127,18 +126,27 @@ impl <'a> ListsLayout<'a> {
             .next()
     }
 
-    pub fn handle_navigation(&mut self, name: &str, direction: Direction) {
-        self.get_list_by_name(name).unwrap().handle_navigation(direction);
+    pub fn handle_navigation(&mut self, direction: Direction) {
+        self.lists[self.selected_list].handle_navigation(direction);
     }
 
-    pub fn highlight_border(&mut self, name: &str) {
-        self.get_list_by_name(name).unwrap().highlight_border();
-    }
-    
-    pub fn normalise_border(&mut self, name: &str) {
-        self.get_list_by_name(name).unwrap().normalise_border();
+    pub fn hande_tab(&mut self) {
+        // normalise current block
+        self.lists[self.selected_list].normalise_border();
+
+        let mut new_idx = self.selected_list.saturating_add(1);
+        if new_idx == self.lists.len() {
+            new_idx = 0
+        }
+        
+        // higlight selected list border
+        self.selected_list = new_idx;
+        self.lists[self.selected_list].highlight_border();
     }
 
+    pub fn selected_list(&self) -> &UIList<'a> {
+        &self.lists[self.selected_list]
+    }
 }
 
 // Topics and Partitions Layout
