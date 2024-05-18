@@ -3,16 +3,16 @@ use std::collections::HashMap;
 use ratatui::{layout::{Constraint, Layout, Rect}, Frame, text::{Text, Span}, widgets::ScrollbarOrientation, style::Stylize};
 use crate::kafka::metadata::Metadata;
 
-use super::widgets::{UIParagraph, UITabs, UIParagraphWithScrollbar, UIList, AppWidget};
+use super::widgets::{UIParagraph, UITabs, UIParagraphWithScrollbar, UIList, AppWidget, Direction};
 
 const APP_NAME: &str = "Kafka2i - TUI for Kafka";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const APP_FOOTER: &str = "<TAB> Switch Tabs | <ESC> Quit | <UP/DOWN> Scroll List";
 
-const BROKERS_LIST_NAME: &str = "Brokers";
+pub const BROKERS_LIST_NAME: &str = "Brokers";
 const CONSUMER_GROUPS_LIST_NAME: &str = "Consumer Groups";
-const TOPICS_LIST_NAME: &str = "Topics";
-const PARTITIONS_LIST_NAME: &str = "Partitions";
+pub const TOPICS_LIST_NAME: &str = "Topics";
+pub const PARTITIONS_LIST_NAME: &str = "Partitions";
 
 // Top level application layout
 pub struct AppLayout<'a> {
@@ -126,6 +126,19 @@ impl <'a> ListsLayout<'a> {
             .filter(|l| l.name() == name)
             .next()
     }
+
+    pub fn handle_navigation(&mut self, name: &str, direction: Direction) {
+        self.get_list_by_name(name).unwrap().handle_navigation(direction);
+    }
+
+    pub fn highlight_border(&mut self, name: &str) {
+        self.get_list_by_name(name).unwrap().highlight_border();
+    }
+    
+    pub fn normalise_border(&mut self, name: &str) {
+        self.get_list_by_name(name).unwrap().normalise_border();
+    }
+
 }
 
 // Topics and Partitions Layout

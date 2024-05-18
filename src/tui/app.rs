@@ -3,17 +3,15 @@ use crossterm::event::{KeyEventKind, KeyCode};
 use parking_lot::Mutex;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use ratatui::widgets::ScrollbarOrientation;
 use rdkafka::{ClientContext, consumer::ConsumerContext};
-use strum::{EnumIter, FromRepr, EnumProperty, EnumCount, Display};
+use strum::{EnumIter, FromRepr, EnumCount, Display};
 
 use crate::kafka::metadata;
-use crate::kafka::{consumer::Consumer, stats::Stats};
+use crate::kafka::consumer::Consumer;
 use crate::tui::events::TuiEvent;
-use crate::tui::widgets::{Direction, AppWidget};
+use crate::tui::widgets::Direction;
 
-use super::widgets::UIParagraphWithScrollbar;
-use super::single_layout::AppLayout;
+use super::single_layout::{AppLayout, TOPICS_LIST_NAME, PARTITIONS_LIST_NAME};
 
 #[derive(Clone, Display, EnumIter, FromRepr, Default, EnumCount)]
 enum SelectedBlock {
@@ -119,14 +117,36 @@ where T: ClientContext + ConsumerContext {
     // Handles tab event which switches between the available tabs
     async fn handle_tab(&mut self) {
         //normalize border of current list and highlight of next list
-        self.layout.main_layout.lists_layout.get_list_by_name(&self.state.selected_block.to_string()).unwrap().normalise_border();
+        self.layout.main_layout.lists_layout.normalise_border(&self.state.selected_block.to_string());
         self.state.selected_block = self.state.selected_block.clone().next();
-        self.layout.main_layout.lists_layout.get_list_by_name(&self.state.selected_block.to_string()).unwrap().highlight_border();
+        self.layout.main_layout.lists_layout.highlight_border(&self.state.selected_block.to_string());
     }
 
     // Handles the list navigation for the list in focus 
     async fn handle_list_navigation(&mut self, direction: Direction){
-            self.layout.main_layout.lists_layout.get_list_by_name(&self.state.selected_block.to_string()).unwrap().handle_navigation(direction);
+        let lists_layout = &mut self.layout.main_layout.lists_layout;
+        lists_layout.handle_navigation(&self.state.selected_block.to_string(), direction);
+
+        match self.state.selected_block {
+            // If selected block is Topics, populate the paritions list
+            SelectedBlock::Topics => {
+                if let Some(selected_topic) = lists_layout.get_list_by_name(TOPICS_LIST_NAME).unwrap().selected_item() {
+                    // get partitions for the topic
+                    if let Some(topic) = self.kafka_consumer.lock().metadata().get_topic(&selected_topic) {
+                        let partitions_names = topic.partition_names();
+                        self.layout.main_layout.lists_layout.get_list_by_name(PARTITIONS_LIST_NAME).unwrap().update(partitions_names);
+                    }
+                }
+            },
+            
+            // If selected block is partition, show current offset
+            SelectedBlock::Partitions => {
+                if let Some(selected_partition) = lists_layout.get_list_by_name(PARTITIONS_LIST_NAME).unwrap().selected_item() {
+
+                }
+            },
+            _ => ()
+        }
     }
 }
 
@@ -140,3 +160,5 @@ where T: ClientContext + ConsumerContext
         });
     }
 }
+
+

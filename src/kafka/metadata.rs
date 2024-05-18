@@ -57,7 +57,7 @@ impl Metadata {
         return None
     }
 
-    fn get_topic(&self, name: &str) -> Option<Topic> {
+    pub fn get_topic(&self, name: &str) -> Option<Topic> {
         if let Some(t) = self.topics.iter().find(|t| t.name() == name) {
             return Some((*t).clone())
         }
@@ -126,6 +126,12 @@ impl Topic {
 
     pub fn partitions(&self) -> &[Partition] {
         &self.partitions
+    }
+
+    pub fn partition_names(&self) -> Vec<String> {
+        self.partitions.iter()
+            .map(|p| format!("{}-{}", self.name, p.id()))
+            .collect()
     }
 }
 
