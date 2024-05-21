@@ -207,5 +207,10 @@ where T: ClientContext + ConsumerContext
             .map(|g| g.into())
             .collect::<Vec<ConsumerGroup>>())
     }
+
+    fn fetch_watermarks(self, topic: &str, partition: i32) -> Result<(i64, i64)>{
+        let watermarks = self.base_consumer.fetch_watermarks(topic, partition, self.default_timeout_in_secs)?;
+        Ok(watermarks)
+    }
 }
 
