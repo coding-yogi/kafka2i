@@ -2,12 +2,17 @@ use std::fmt::Display;
 
 use clap::{Parser, ValueEnum};
 use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
+use strum::Display;
 
+// config params
 const BOOTSTRAP_SERVERS: &str = "bootstrap.servers";
 const GROUP_ID: &str = "group.id";
 const SESSION_TIMEOUT_MS: &str = "session.timeout.ms";
 const ENABLE_AUTO_COMMIT: &str = "enable.auto.commit";
 const STATS_INTERVAL_MS: &str = "statistics.interval.ms";
+const SECURITY_PROTOCOL: &str = "security.protocol";
+const CA_CERT_LOCATION: &str = "ssl.ca.location";
+const ENABLE_CERT_VALIDATION: &str = "enable.ssl.certificate.verification";
 
 const DEFAULT_GROUP_ID: &str = "cg.krust";
 
@@ -16,6 +21,21 @@ pub enum LogLevel {
     Debug,
     Info,
     Error,
+}
+
+#[derive(Debug, Display, Clone, ValueEnum)]
+pub enum Protocol {
+    #[strum(serialize = "PLAINTEXT")]
+    PlainText,
+
+    #[strum(serialize = "SSL")]
+    Ssl,
+
+    #[strum(serialize = "SASL_SSL")]
+    SaslSsl,
+
+    #[strum(serialize = "SASL_PLAINTEXT")]
+    SaslPlainText,
 }
 
 impl Into<RDKafkaLogLevel> for LogLevel {
@@ -60,9 +80,17 @@ pub struct Config {
     #[arg(short, long, required=true)]
     pub bootstrap_servers: String,
     
-    // Consumer group ID
+    /// Consumer group ID
     #[arg(short, long, default_value = DEFAULT_GROUP_ID)]
     pub group_id: String,
+
+    /// Protocol to use
+    #[arg(short, long, default_value_t = Protocol::PlainText)]
+    pub protocol: Protocol,
+
+    /// Full path to CA location for validating SSL Certificate, If not set, certificate validation will be ignored
+    #[arg(short, long, default_value = "")]
+    pub ssl_ca_location: String,
 }
 
 impl TryInto<ClientConfig> for Config {
@@ -71,7 +99,7 @@ impl TryInto<ClientConfig> for Config {
     fn try_into(self) -> Result<ClientConfig, Self::Error> {
         let mut client_config = ClientConfig::new();
         client_config.log_level = self.log_level.into();
-
+       
         // bootstrap server
         if self.bootstrap_servers != "" {
             client_config.set(BOOTSTRAP_SERVERS.to_string(), self.bootstrap_servers);
@@ -85,10 +113,32 @@ impl TryInto<ClientConfig> for Config {
         } else {
             client_config.set(GROUP_ID.to_string(), DEFAULT_GROUP_ID.to_string());
         }
-
+        
         // stats interval
         client_config.set(STATS_INTERVAL_MS, "5000");
-        
+       
+        // handle protocol
+        client_config.set(SECURITY_PROTOCOL.to_string(), self.protocol.to_string());
+
+        match self.protocol {
+            Protocol::Ssl => {
+                if self.ssl_ca_location != "" {
+                    client_config.set(CA_CERT_LOCATION, self.ssl_ca_location);
+                } else {
+                    // Disable the cert validation if not cert location is found
+                    client_config.set(ENABLE_CERT_VALIDATION, "false");
+                }
+            },
+            Protocol::SaslSsl => {
+
+            },
+
+            Protocol::SaslPlainText => {
+
+            },
+            Protocol::PlainText => (),
+        }
+
         Ok(client_config)
     }
 }

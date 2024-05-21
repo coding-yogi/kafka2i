@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 clap = { version = "4.5.4", features = ["derive"] }
 color-eyre = { version = "0.5", default-features = false }
@@ -16,7 +15,7 @@ heck = "0.5.0"
 log = "0.4"
 parking_lot = "0.12.2"
 ratatui = { version = "0.26.0", features = ["all-widgets"] }
-rdkafka = { version = "0.36.2", features = ["cmake-build"] }
+rdkafka = { version = "0.36.2", features = ["cmake-build", "ssl", "sasl"] }
 strum = { version = "0.26", features = ["derive"] }
 tokio = { version = "1.36.0", features = ["full"] }
 tokio-util = "0.7.9"
