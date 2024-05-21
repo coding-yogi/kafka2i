@@ -41,6 +41,18 @@ impl From<KafkaError> for ConsumerError {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct DefaultContext;
+
+impl ConsumerContext for DefaultContext {}
+
+impl ClientContext for DefaultContext {
+    // Overriding stats as we do not wish to log the stats as part of the default implementatoion
+    fn stats(&self, _statistics: rdkafka::Statistics) {
+      ()
+    }
+}
+
 pub struct StatsContext {
    stats_sender: Sender<Statistics> 
 }

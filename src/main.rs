@@ -10,18 +10,19 @@ use ratatui::{prelude::CrosstermBackend, Terminal};
 use tokio::time;
 use tui::{app::App, events};
 
-use crate::kafka::consumer::{Consumer, Result as ConsumerResult};
+use crate::kafka::consumer::{Consumer, Result as ConsumerResult, DefaultContext};
 use crate::config::Config;
 
 mod kafka;
 mod cmd;
 mod config;
 mod tui;
+mod logger;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
 
-    env_logger::init();
+    logger::initiate();
     
     // Parsing config from command line args
     let config = Config::parse();
@@ -29,7 +30,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Setup Kafka consumer to consume messages
     log::info!("creating new kafka consumer to consume messages");
-    let message_consumer = Arc::new(Mutex::new(Consumer::new(&client_config, DefaultConsumerContext).unwrap()));
+    let message_consumer = Arc::new(Mutex::new(Consumer::new(&client_config, DefaultContext).unwrap()));
     let _ = message_consumer.lock().fetch_metadata();
 
     // Clone

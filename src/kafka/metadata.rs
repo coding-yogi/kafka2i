@@ -32,21 +32,30 @@ impl Metadata {
     }
 
     pub fn brokers_list(&self) -> Vec<String> {
-        self.brokers.iter()
+        let mut brokers = self.brokers.iter()
             .map(|b| b.name.clone())
-            .collect()
+            .collect::<Vec<String>>();
+
+        brokers.sort();
+        brokers
     }
 
     pub fn topics_list(&self) -> Vec<String> {
-        self.topics.iter()
+        let mut topics = self.topics.iter()
             .map(|t| t.name.clone())
-            .collect()
+            .collect::<Vec<String>>();
+
+        topics.sort();
+        topics
     }
 
     pub fn consumer_group_lists(&self) -> Vec<String> {
-        self.consumer_groups.iter()
+        let mut cgs = self.consumer_groups.iter()
             .map(|g| g.name.clone())
-            .collect()
+            .collect::<Vec<String>>();
+
+        cgs.sort();
+        cgs
     }
 
     pub fn get_broker(&self, name: &str) -> Option<Broker> {
