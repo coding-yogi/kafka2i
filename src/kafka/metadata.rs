@@ -66,12 +66,38 @@ impl Metadata {
         return None
     }
 
+    pub fn get_consumer_group(&self, name: &str) -> Option<ConsumerGroup> {
+        if let Some(consumer_group) = self.consumer_groups.iter().find(|c| c.name == name) {
+            return Some((*consumer_group).clone());
+        }
+
+        return None;
+    }
+
     pub fn get_topic(&self, name: &str) -> Option<Topic> {
         if let Some(t) = self.topics.iter().find(|t| t.name() == name) {
             return Some((*t).clone())
         }
 
         return None;
+    }
+
+    pub fn get_partition(&self, name: &str) -> Option<Partition> {
+        let name = name.split("/").collect::<Vec<&str>>();
+        if name.len() != 2 {
+            return None
+        }
+
+        let topic_name = name.get(0).unwrap();
+        let parition_id = name.get(1).unwrap();
+
+        if let Some(topic) = self.get_topic(topic_name) {
+            if let Some(partition) = topic.partitions.iter().find(|p| p.id().to_string() == *parition_id) {
+                return Some(partition.clone())
+            }
+        }
+
+        None
     }
 
     pub fn leader_for_paritions(&self, broker_id: i32) -> usize {
@@ -143,7 +169,7 @@ impl Topic {
 
     pub fn partition_names(&self) -> Vec<String> {
         self.partitions.iter()
-            .map(|p| format!("{}-{}", self.name, p.id()))
+            .map(|p| format!("{}/{}", self.name, p.id()))
             .collect()
     }
 }
@@ -192,6 +218,18 @@ impl Partition {
     pub fn id(&self) -> i32 {
         self.id
     }
+
+    pub fn leader(&self) -> i32 {
+        self.leader
+    }
+
+    pub fn isr(&self) -> Vec<i32> {
+        self.isr.clone()
+    }
+
+    pub fn replicas(&self) -> Vec<i32> {
+        self.replicas.clone()
+    }
 }
 
 impl From<&MetadataPartition> for Partition {
@@ -227,11 +265,18 @@ impl ConsumerGroup {
     fn name(&self) -> &str {
         &self.name
     }
+
+    pub fn state(&self) -> &str {
+        &self.state
+    }
+
+    pub fn members_count(&self) -> usize {
+        self.members.len()
+    }
 }
 
 impl From<&GroupInfo> for ConsumerGroup {
     fn from(value: &GroupInfo) -> Self {
-
         let members = value.members().iter()
             .map(|m| m.into())
             .collect::<Vec<ConsumerGroupMember>>();

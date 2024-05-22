@@ -9,6 +9,7 @@ use rdkafka::{
     ClientConfig, 
     util::Timeout, 
     error::KafkaError, 
+    metadata::Metadata as KafkaMetadata,
     message::BorrowedMessage, 
     Offset, 
     TopicPartitionList, config::FromClientConfigAndContext, ClientContext, Statistics,
@@ -74,7 +75,7 @@ impl ClientContext for StatsContext {
 }
 
 const DEFAULT_TIMEOUT_IN_SECS: Duration = Duration::from_secs(30);
-const DEFAULT_REFRESH_METADATA_IN_SECS: Duration = Duration::from_secs(10);
+const DEFAULT_REFRESH_METADATA_IN_SECS: Duration = Duration::from_secs(60);
 
 // Wraps Kafka Consumer from the lib
 pub struct Consumer<T>
@@ -110,13 +111,16 @@ where T: ClientContext + ConsumerContext
     }
 
     // Fetch Metadata
-    pub fn fetch_metadata(&mut self) -> Result<()> {
+    pub fn fetch_metadata(&self) -> Result<KafkaMetadata> {
         // Metadata
         let kafka_metadata = self.base_consumer.fetch_metadata(None, self.default_timeout_in_secs)?; 
-        let consumer_groups = self.fetch_groups()?;
+        Ok(kafka_metadata)
+    }
 
-        self.metadata.update(&kafka_metadata, consumer_groups);
-        Ok(())
+    // Update metadata
+    pub fn update_metadata(&mut self, metadata: KafkaMetadata, consumer_groups: Vec<ConsumerGroup>) {
+        log::debug!("Updating metadata");
+        self.metadata.update(&metadata, consumer_groups);
     }
 
     // Return Metadata
@@ -200,7 +204,7 @@ where T: ClientContext + ConsumerContext
         Ok(())
     }
 
-    fn fetch_groups(&mut self) -> Result<Vec<ConsumerGroup>>{
+    pub fn fetch_groups(&self) -> Result<Vec<ConsumerGroup>>{
         let group_list = self.base_consumer.fetch_group_list(None, self.default_timeout_in_secs)?;
 
         Ok(group_list.groups().iter()
@@ -208,7 +212,7 @@ where T: ClientContext + ConsumerContext
             .collect::<Vec<ConsumerGroup>>())
     }
 
-    fn fetch_watermarks(self, topic: &str, partition: i32) -> Result<(i64, i64)>{
+    pub fn fetch_watermarks(self, topic: &str, partition: i32) -> Result<(i64, i64)>{
         let watermarks = self.base_consumer.fetch_watermarks(topic, partition, self.default_timeout_in_secs)?;
         Ok(watermarks)
     }

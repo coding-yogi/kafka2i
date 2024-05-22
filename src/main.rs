@@ -4,13 +4,13 @@ use clap::Parser;
 use crossbeam::channel::bounded;
 use kafka::consumer::StatsContext;
 use parking_lot::Mutex;
-use rdkafka::{ClientConfig, Message, consumer::ConsumerContext, Statistics, ClientContext};
+use rdkafka::{consumer::ConsumerContext, ClientConfig, ClientContext, Statistics};
 use crossterm::{terminal::{enable_raw_mode, EnterAlternateScreen, disable_raw_mode, LeaveAlternateScreen}, execute};
 use ratatui::{prelude::CrosstermBackend, Terminal};
 use tokio::time;
 use tui::{app::App, events};
 
-use crate::kafka::consumer::{Consumer, Result as ConsumerResult, DefaultContext};
+use crate::kafka::consumer::{Consumer, DefaultContext};
 use crate::config::Config;
 
 mod kafka;
@@ -26,58 +26,65 @@ async fn main() -> Result<(), Box<dyn Error>> {
     
     // Parsing config from command line args
     let config = Config::parse();
-    let client_config: ClientConfig = config.try_into().unwrap();
+    let client_config: ClientConfig = config.try_into()?;
 
     // Setup Kafka consumer to consume messages
-    log::info!("creating new kafka consumer to consume messages");
+    log::debug!("creating new kafka consumer to consume messages");
     let message_consumer = Arc::new(Mutex::new(Consumer::new(&client_config, DefaultContext).unwrap()));
-    let _ = message_consumer.lock().fetch_metadata();
+    let metadata = message_consumer.lock().fetch_metadata()?;
+    let consumer_groups = message_consumer.lock().fetch_groups()?;
+    message_consumer.lock().update_metadata(metadata, consumer_groups);
 
     // Clone
     let message_consumer_clone = message_consumer.clone();
 
     let (stats_sender, stats_receiver) = bounded::<Statistics>(5);
         
-    //Another consumer to fetch metadata and stats
-    log::info!("creating a new consumer to consumer metadata and stats");
+    // Another consumer to fetch metadata and stats
+    log::debug!("creating a new stats consumer to consume metadata and stats");
     let stats_consumer = Consumer::new(&client_config, StatsContext::new(stats_sender)).unwrap();
     
+    // spawn a task to poll stats consumer at regular interval
+    // polling is required to receive stats from the callback
     let handle = tokio::spawn(async move {
         loop {
-            // fetch metadata
-            //let _ = stats_consumer.fetch_metadata();
-
             // poll to pull stats
             let _ = stats_consumer.consume();
 
             // receive stats
             match stats_receiver.recv_timeout(Duration::from_secs(1)) {
-                Ok(s) => {
+                Ok(_stats) => {
                     //Update stats for message consumer
-                    log::info!("{:?}", s);
-                    //message_consumer_clone.lock().update_stats(s);
+                    //message_consumer_clone.lock().update_stats(stats);
                 },
-                Err(_) => ()
+                Err(_) => log::error!("timed out while receiving stats")
             }
         
-            let _ = message_consumer_clone.lock().fetch_metadata();
+            // Reason for pulling metadata using StatsConsumer and then updating message consumer 
+            // is to avoid message consumer from being locked for longer time during fetching of metadata
+            // thus avoiding the lag on TUI
+            log::debug!("refreshing metadata");
+            let metadata = stats_consumer.fetch_metadata().unwrap();
+            let consumer_groups = stats_consumer.fetch_groups().unwrap();
+            message_consumer_clone.lock().update_metadata(metadata, consumer_groups);
             let refresh_time = message_consumer_clone.lock().refresh_metadata_in_secs;
 
-            // sleep
+            // sleep for refresh duration
             time::sleep(refresh_time).await;
         }
     });
 
     //setup TUI
-    setup().unwrap();
+    setup()?;
     
     // Run TUI
     let mut t = Terminal::new(CrosstermBackend::new(std::io::stderr())).unwrap();
     let result = run(&mut t, message_consumer).await;
 
     // Shutdown TUI
-    shutdown().unwrap();    
-    result.unwrap(); 
+    shutdown()?;    
+    result?; 
+
     // Handle
     drop(handle);
     Ok(())
@@ -166,7 +173,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     */
  } 
 
-fn consume<T: ClientContext + ConsumerContext>(consumer: &Consumer<T>) -> ConsumerResult<()> {
+/*fn consume<T: ClientContext + ConsumerContext>(consumer: &Consumer<T>) -> ConsumerResult<()> {
     match consumer.consume() {
         Ok(opt_message) => {
             if let Some(msg) = opt_message {
@@ -182,15 +189,17 @@ fn consume<T: ClientContext + ConsumerContext>(consumer: &Consumer<T>) -> Consum
             return Err(err);
         }
     }
-}
+}*/
 
 fn setup() -> Result<(), Box<dyn Error>>{
+    log::debug!("setting up TUI");
     enable_raw_mode()?;
     execute!(std::io::stderr(), EnterAlternateScreen)?;
     Ok(())
 }
 
 fn shutdown() -> Result<(), Box<dyn Error>> {
+    log::debug!("shutting down TUI");
   execute!(std::io::stderr(), LeaveAlternateScreen)?;
   disable_raw_mode()?;
   Ok(())
