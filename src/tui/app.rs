@@ -9,7 +9,7 @@ use crate::kafka::consumer::Consumer;
 use crate::tui::events::TuiEvent;
 use crate::tui::widgets::Direction;
 
-use super::single_layout::{AppLayout, TOPICS_LIST_NAME, PARTITIONS_LIST_NAME};
+use super::single_layout::{AppLayout, TOPICS_LIST_NAME, PARTITIONS_LIST_NAME, BROKERS_LIST_NAME};
 
 // App state maintains the state at app level
 struct AppState {
@@ -91,9 +91,20 @@ where T: ClientContext + ConsumerContext {
     // Handles the list navigation for the list in focus 
     async fn handle_list_navigation(&mut self, direction: Direction){
         let lists_layout = &mut self.layout.main_layout.lists_layout;
+        let details_layout = &mut self.layout.main_layout.details_layout;
         lists_layout.handle_navigation(direction);
 
         match lists_layout.selected_list().name() {
+            BROKERS_LIST_NAME => {
+                if let Some(selected_broker) = lists_layout.get_list_by_name(BROKERS_LIST_NAME).unwrap().selected_item() {
+                    let broker_id = self.kafka_consumer.lock().metadata().get_broker(&selected_broker).unwrap().id();
+                    let partition_leader_count = self.kafka_consumer.lock().metadata().leader_for_paritions(broker_id);
+                    let broker_details = generate_broker_details(broker_id, "UP", partition_leader_count);
+                    log::info!("broker details to be written {}", broker_details);
+                    details_layout.details.update_cell_data(BROKERS_LIST_NAME, 0, broker_details);
+                }
+
+            },
             // If selected block is Topics, populate the paritions list
             TOPICS_LIST_NAME => {
                 if let Some(selected_topic) = lists_layout.get_list_by_name(TOPICS_LIST_NAME).unwrap().selected_item() {
@@ -126,4 +137,10 @@ where T: ClientContext + ConsumerContext
     }
 }
 
-
+fn generate_broker_details(id: i32, status: &str, partitions: usize) -> String {
+    format!("
+    ID         : {}
+    Status     : {}
+    Partitions : {}
+    ", id, status, partitions)
+}

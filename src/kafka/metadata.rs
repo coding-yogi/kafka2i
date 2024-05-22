@@ -74,6 +74,11 @@ impl Metadata {
         return None;
     }
 
+    pub fn leader_for_paritions(&self, broker_id: i32) -> usize {
+        self.topics.iter().flat_map(|t| t.partitions().iter().filter(|p| p.leader == broker_id)).count()
+
+    }
+
 }
 
 #[derive(Debug, Clone)]
@@ -89,7 +94,6 @@ impl Broker {
             id,
             name: format!("{}:{}/{}", host.to_string(), port, id),    
             state: "".to_string(),
-
         }
     }
 

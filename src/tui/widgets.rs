@@ -1,6 +1,6 @@
 use ratatui::{
-    widgets::{List, Block, ListItem, Borders, ListState, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Tabs, Table, Row}, 
-    text::{self, Span, Text}, style::{Style, Modifier, Color, palette::tailwind}, 
+    widgets::{List, Block, ListItem, Borders, ListState, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Tabs, Table, Row, TableState}, 
+    text::{self, Span, Text}, style::{Style, Modifier, Color, palette::tailwind, Stylize}, 
     prelude::Rect, Frame, symbols, layout::Constraint,
 };
 
@@ -119,7 +119,7 @@ impl <'a> AppWidget for UITabs<'a> {
 // UIList conatins the stateful widget's type and Rect which holds the widget
 #[derive(Clone)]
 pub struct UIList <'a> {
-    name: &'a str,
+    name: String,
     items: Vec<String>,
     list: List<'a>,
     state: ListState,
@@ -127,12 +127,15 @@ pub struct UIList <'a> {
 }
 
 impl <'a> UIList <'a> {
-    pub fn new(name: &'a str, items: Vec<String>) -> UIList<'a>{ 
+    pub fn new(name: String, items: Vec<String>) -> UIList<'a>{ 
         let items_clone = items.clone();
         let list_items = get_list_items(items_clone);
-        
+
+        let list_count = list_items.len();
+        let name = format!("{} ({})", name, list_count);
+
         UIList {
-            name,
+            name: name.clone(),
             items,
             list: get_list(name, list_items),
             state: ListState::default(),
@@ -141,15 +144,18 @@ impl <'a> UIList <'a> {
     }
 
     pub fn name(&self) -> &str {
-        self.name
+        // return base name w/o count
+        &self.name.split("(").collect::<Vec<&str>>()[0].trim()
     }
 
     pub fn update(&mut self, items: Vec<String>) {
         let items_clone = items.clone();
         let list_items = get_list_items(items_clone);
+        let list_count = list_items.len();
 
+        self.name = format!("{} ({})", self.name(), list_count);
         self.items = items;
-        self.list = get_list(self.name, list_items);
+        self.list = get_list(self.name.clone(), list_items);
         self.state = ListState::default();
     }
     
@@ -208,7 +214,7 @@ fn get_list_items(items: Vec<String>) -> Vec<ListItem<'static>> {
         .collect::<Vec<ListItem>>()
 }
 
-fn get_list<'a>(name: &'a str, list_items: Vec<ListItem<'a>>) -> List<'a> {
+fn get_list<'a>(name: String, list_items: Vec<ListItem<'a>>) -> List<'a> {
     List::new(list_items)
         .block(create_block(NORMAL_COLOR, name, true))
         .highlight_style(Style::default().add_modifier(Modifier::BOLD).fg(HIGHLIGHT_COLOR))
@@ -223,11 +229,11 @@ impl <'a> AppWidget for UIList<'a> {
     }
     
     fn highlight_border(&mut self) {
-        self.list = self.list.clone().block(create_block(HIGHLIGHT_COLOR, self.name, true));
+        self.list = self.list.clone().block(create_block(HIGHLIGHT_COLOR, self.name.clone(), true));
     }
 
     fn normalise_border(&mut self) {
-        self.list = self.list.clone().block(create_block(NORMAL_COLOR, self.name, true));
+        self.list = self.list.clone().block(create_block(NORMAL_COLOR, self.name.clone(), true));
     } 
 }
 
@@ -238,7 +244,7 @@ pub struct UIParagraphWithScrollbar<'a> {
 }
 
 impl <'a> UIParagraphWithScrollbar<'a> {
-    pub fn new(name: &'a str, text: Text<'a>, orientation: ScrollbarOrientation) -> UIParagraphWithScrollbar<'a> {
+    pub fn new(name: String, text: Text<'a>, orientation: ScrollbarOrientation) -> UIParagraphWithScrollbar<'a> {
         let content_length = text.lines.len();
 
         UIParagraphWithScrollbar {
@@ -282,22 +288,22 @@ impl <'a> AppWidget for UIParagraphWithScrollbar<'a> {
 // UiParagraph
 #[derive(Clone)]
 pub struct UIParagraph <'a> {
-    name: &'a str,
+    name: String,
     paragraph: Paragraph<'a>,
     area: Rect,
 }
 
 impl <'a> UIParagraph<'a> {
-    pub fn new(name: &'a str, text: Text<'a>) -> UIParagraph<'a> {
+    pub fn new(name: String, text: Text<'a>) -> UIParagraph<'a> {
         UIParagraph {
-            name,
+            name: name.clone(),
             paragraph: Paragraph::new(text).block(create_block(NORMAL_COLOR, name, true)),
             area: Rect::default()
         }
     }
 
     pub fn update(&mut self, text: Text<'a>) {
-        self.paragraph = Paragraph::new(text).block(create_block(NORMAL_COLOR, self.name, true))
+        self.paragraph = Paragraph::new(text).block(create_block(NORMAL_COLOR, self.name.clone(), true))
     }
 
     pub fn scroll(&mut self, offset: (u16, u16)) {
@@ -312,15 +318,15 @@ impl <'a> AppWidget for UIParagraph<'a> {
     }
 
     fn normalise_border(&mut self) {
-        self.paragraph = self.paragraph.clone().block(create_block(NORMAL_COLOR, self.name, true));
+        self.paragraph = self.paragraph.clone().block(create_block(NORMAL_COLOR, self.name.clone(), true));
     }
 
     fn highlight_border(&mut self) {
-        self.paragraph = self.paragraph.clone().block(create_block(HIGHLIGHT_COLOR, self.name, true));
+        self.paragraph = self.paragraph.clone().block(create_block(HIGHLIGHT_COLOR, self.name.clone(), true));
     }
 }
 
-fn create_block<'a>(color: Color, name: &'a str, with_border: bool) -> Block<'a> {
+fn create_block<'a>(color: Color, name: String, with_border: bool) -> Block<'a> {
     let block = Block::default();
     if with_border {
         return block.borders(Borders::ALL)
@@ -381,23 +387,76 @@ impl <'a> AppWidget for UIScrollbar<'a> {
 #[derive(Clone)]
 pub struct UITable<'a> {
     table : Table<'a>,
+    area: Rect,
+    state: TableState,
+    columns: Vec<&'a str>,
+    data: Vec<Vec<String>>
 }
 
 impl <'a> UITable<'a> {
-    pub fn new(columns: Vec<&'a str>, column_widths: &'a[u16], data: Vec<Vec<String>>) -> UITable<'a> {
+    pub fn new(columns: Vec<&'a str>, column_widths: Vec<u16>, data: Vec<Vec<String>>) -> UITable<'a> {
         let mut constraints = vec![];
         for column_width in column_widths {
-            constraints.push(Constraint::Percentage(*column_width))
+            constraints.push(Constraint::Percentage(column_width))
         }
 
         let mut rows: Vec<Row> = vec![];
-        for data_row in data {
-            rows.push(Row::new(data_row));
+        for data_row in data.iter() {
+            rows.push(Row::new(data_row.clone()).height(5));
         }
 
         UITable {
-            table: Table::new(rows, constraints).header(Row::new(columns))
+            table: Table::new(rows, constraints)
+                .header(Row::new(columns.clone()).bold())
+                .block(create_block(NORMAL_COLOR, "".to_string(), true)),
+            area: Rect::default(),
+            state: TableState::default(),
+            columns,
+            data,
         }
+    }
+
+    pub fn update_cell_data(&mut self, column_name: &str, row: usize, cell_data: String) {
+        let column = self.get_column_idx_for(column_name); 
+        let data_row = self.data.get_mut(row).unwrap();
+        data_row[column] = cell_data;
+        
+        let mut rows: Vec<Row> = vec![];
+        for data_row in &self.data {
+            rows.push(Row::new(data_row.clone()).height(5));
+        }
+        
+        self.table = self.table.clone().rows(rows);
+    }
+
+    pub fn get_column_idx_for(&self, name: &str) -> usize {
+        let mut col_idx = 0;
+        for col_name in self.columns.iter() {
+            if name.contains(col_name) {
+                return col_idx
+            }
+
+            col_idx += 1;
+        }
+
+        0
+    }
+
+    pub fn get_data(&self) -> Vec<Vec<String>> {
+        self.data.clone()
+    }
+}
+
+impl <'a> AppWidget for UITable<'a> {
+    fn render(&mut self, frame: &mut Frame, area: Rect) {
+        self.area = area;
+        frame.render_stateful_widget::<Table>(self.table.clone(), self.area, &mut self.state);
+    }
+
+    fn normalise_border(&mut self) {
+    }
+
+    fn highlight_border(&mut self) {
     }
 }
 

@@ -1,10 +1,10 @@
-use std::{error::Error, io::Stderr, time::Duration, thread, sync::Arc};
+use std::{error::Error, io::Stderr, time::Duration, sync::Arc};
 
 use clap::Parser;
 use crossbeam::channel::bounded;
 use kafka::consumer::StatsContext;
 use parking_lot::Mutex;
-use rdkafka::{ClientConfig, Message, consumer::{DefaultConsumerContext, ConsumerContext}, Statistics, ClientContext};
+use rdkafka::{ClientConfig, Message, consumer::ConsumerContext, Statistics, ClientContext};
 use crossterm::{terminal::{enable_raw_mode, EnterAlternateScreen, disable_raw_mode, LeaveAlternateScreen}, execute};
 use ratatui::{prelude::CrosstermBackend, Terminal};
 use tokio::time;

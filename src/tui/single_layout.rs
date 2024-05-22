@@ -1,11 +1,11 @@
 use ratatui::{layout::{Constraint, Layout, Rect}, Frame, text::{Text, Span}, widgets::ScrollbarOrientation, style::Stylize};
 use crate::kafka::metadata::Metadata;
 
-use super::widgets::{UIParagraph, UIParagraphWithScrollbar, UIList, AppWidget, Direction};
+use super::widgets::{UIParagraph, UIParagraphWithScrollbar, UIList, AppWidget, Direction, UITable};
 
 const APP_NAME: &str = "Kafka2i - TUI for Kafka";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
-const APP_FOOTER: &str = "<TAB> Switch Tabs | <ESC> Quit | <UP/DOWN> Scroll List";
+const APP_FOOTER: &str = "<TAB> Navigate Lists | <ESC> Quit | <UP/DOWN> Scroll List";
 
 pub const BROKERS_LIST_NAME: &str = "Brokers";
 pub const CONSUMER_GROUPS_LIST_NAME: &str = "Consumer Groups";
@@ -49,7 +49,7 @@ pub struct HeaderLayout<'a> {
 impl <'a> HeaderLayout<'a> {
     pub fn new() -> HeaderLayout<'a> {
         HeaderLayout{
-            title: UIParagraph::new("", Text::from(vec![
+            title: UIParagraph::new("".to_string(), Text::from(vec![
                 Span::from(APP_NAME).bold().green().into_centered_line(),
                 Span::from(APP_VERSION).gray().into_centered_line(),
             ])),
@@ -77,8 +77,8 @@ impl <'a> MainLayout<'a> {
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
         use Constraint::*;
-        let vertical_layout = Layout::vertical([Percentage(30), Fill(1)]);
-        let [list_layout, details_layout] = vertical_layout.areas(area);
+        let horizontal_layout = Layout::horizontal([Percentage(25), Fill(1)]);
+        let [list_layout, details_layout] = horizontal_layout.areas(area);
 
         self.lists_layout.render(frame, list_layout);
         self.details_layout.render(frame, details_layout);
@@ -95,10 +95,10 @@ impl <'a> ListsLayout<'a> {
     pub fn new(metadata: &Metadata) -> ListsLayout<'a> {
         // initlaise all UI Lists
         let mut lists = vec![];
-        lists.push(UIList::new(BROKERS_LIST_NAME, metadata.brokers_list()));
-        lists.push(UIList::new(CONSUMER_GROUPS_LIST_NAME, metadata.consumer_group_lists()));
-        lists.push(UIList::new(TOPICS_LIST_NAME, metadata.topics_list()));
-        lists.push(UIList::new(PARTITIONS_LIST_NAME, vec![]));
+        lists.push(UIList::new(BROKERS_LIST_NAME.to_string(), metadata.brokers_list()));
+        lists.push(UIList::new(CONSUMER_GROUPS_LIST_NAME.to_string(), metadata.consumer_group_lists()));
+        lists.push(UIList::new(TOPICS_LIST_NAME.to_string(), metadata.topics_list()));
+        lists.push(UIList::new(PARTITIONS_LIST_NAME.to_string(), vec![]));
 
         // select and highlight first list
         let selected_list = 0; 
@@ -112,8 +112,8 @@ impl <'a> ListsLayout<'a> {
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
         use Constraint::*;
-        let horizontal_layout = Layout::horizontal([Percentage(25), Percentage(25), Percentage(25), Fill(1)]);
-        let list_areas: [Rect; 4] = horizontal_layout.areas(area);
+        let vertical_layout = Layout::vertical([Percentage(10), Percentage(30), Percentage(30), Fill(1)]);
+        let list_areas: [Rect; 4] = vertical_layout.areas(area);
 
         for i in 0..self.lists.len() {
             self.lists[i].render(frame, list_areas[i]);
@@ -122,7 +122,7 @@ impl <'a> ListsLayout<'a> {
 
     pub fn get_list_by_name(&mut self, name: &str) -> Option<&mut UIList<'a>> {
         self.lists.iter_mut()
-            .filter(|l| l.name() == name)
+            .filter(|l| l.name().starts_with(name))
             .next()
     }
 
@@ -151,18 +151,27 @@ impl <'a> ListsLayout<'a> {
 
 // Topics and Partitions Layout
 pub struct DetailsLayout<'a> {
-    pub details: UIParagraphWithScrollbar<'a>
+    pub details: UITable<'a>,
+    pub message: UIParagraphWithScrollbar<'a>
 }
 
 impl <'a> DetailsLayout<'a> {
     pub fn new() -> DetailsLayout<'a> {
+        let column_headers = vec!["Broker", "Consumer Group", "Topic", "Partition"];
+        let column_constraints: Vec<u16> = vec![25, 25, 25, 25];
+        let data = vec![vec!["".to_string(); column_constraints.len()]];
+
         DetailsLayout {
-            details: UIParagraphWithScrollbar::new("Details", "".into(), ScrollbarOrientation::VerticalRight),
+            details: UITable::new(column_headers, column_constraints, data),
+            message: UIParagraphWithScrollbar::new("Message".to_string(), "".into(), ScrollbarOrientation::VerticalRight),
         }
     }
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
-        self.details.render(frame, area);
+        let layout = Layout::vertical([Constraint::Percentage(30), Constraint::Fill(1)]);
+        let [details, message] = layout.areas(area);
+        self.details.render(frame, details);
+        self.message.render(frame, message);
     }
 }
 
@@ -174,7 +183,7 @@ pub struct FooterLayout<'a> {
 impl <'a> FooterLayout<'a> {
     pub fn new() -> FooterLayout<'a> {
         FooterLayout {
-            footer: UIParagraph::new("", Text::from(vec![
+            footer: UIParagraph::new("".to_string(), Text::from(vec![
                 Span::from(APP_FOOTER).gray().into_centered_line(),
             ]))
         }
