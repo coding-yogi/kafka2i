@@ -1,20 +1,33 @@
-use std::{io::Stderr, sync::Arc};
+use std::{io::Stderr, sync::Arc, default};
 use crossterm::event::{KeyEventKind, KeyCode};
 use log::{error, debug};
 use parking_lot::Mutex;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use rdkafka::{ClientContext, consumer::ConsumerContext};
+use strum::{self, Display};
 use crate::kafka::consumer::Consumer;
 use crate::tui::events::TuiEvent;
 use crate::tui::widgets::Direction;
 
 use super::single_layout::{AppLayout, BROKERS_LIST_NAME, CONSUMER_GROUPS_LIST_NAME, PARTITIONS_LIST_NAME, TOPICS_LIST_NAME};
 
+// Mode of App
+#[derive(Clone, Debug, Display, Default)]
+enum Mode {
+    #[default]
+    #[strum(to_string="Consumer")]
+    Consumer,
+    #[strum(to_string="Producer")]
+    Producer
+}
+
 // App state maintains the state at app level
 struct AppState {
     // should_quit tells the main loop to terminate the app
     should_quit: bool,
+    //mode
+    mode: Mode,
 }
 
 // App is the high level struct containing
@@ -36,15 +49,20 @@ where T: ClientContext + ConsumerContext
 {
     pub async fn new(t: &'a mut Terminal<CrosstermBackend<Stderr>>, kafka_consumer: Arc<Mutex<Consumer<T>>>) -> App<'a, T> {
        let metadata = kafka_consumer.lock().metadata().clone();
+       let mode = Mode::default();
 
-        App {
+        let mut app = App {
            layout: AppLayout::new(&metadata),
            state: AppState {
                 should_quit: false,
+                mode: mode.clone(),
            },
            terminal: t,
            kafka_consumer,
-        }
+        };
+
+        app.layout.footer_layout.update_mode(mode.to_string());
+        app
     }
 }
 

@@ -1,4 +1,4 @@
-use ratatui::{layout::{Constraint, Layout, Rect}, Frame, text::{Text, Span}, widgets::ScrollbarOrientation, style::Stylize};
+use ratatui::{layout::{Constraint, Layout, Rect, self}, Frame, text::{Text, Span, Line}, widgets::ScrollbarOrientation, style::{Stylize, Color}};
 use crate::kafka::metadata::Metadata;
 
 use super::widgets::{UIParagraph, UIParagraphWithScrollbar, UIList, AppWidget, Direction, UITable};
@@ -51,8 +51,8 @@ impl <'a> HeaderLayout<'a> {
         HeaderLayout{
             title: UIParagraph::new("".to_string(), Text::from(vec![
                 Span::from(APP_NAME).bold().green().into_centered_line(),
-                Span::from(APP_VERSION).gray().into_centered_line(),
-            ])),
+                Span::from(APP_VERSION).gray().into_centered_line()
+            ]))
         }
     }
 
@@ -177,19 +177,30 @@ impl <'a> DetailsLayout<'a> {
 
 // Footer Layout
 pub struct FooterLayout<'a> {
+    pub mode: UIParagraph<'a>,
     pub footer: UIParagraph<'a>
 }
 
 impl <'a> FooterLayout<'a> {
     pub fn new() -> FooterLayout<'a> {
         FooterLayout {
+            mode: UIParagraph::new("".to_string(), Text::default()),
             footer: UIParagraph::new("".to_string(), Text::from(vec![
                 Span::from(APP_FOOTER).gray().into_centered_line(),
             ]))
         }
     }
 
+    pub fn update_mode(&mut self, mode: String) {
+        self.mode.update(Text::from(vec![vec![
+                                    Span::from(" Mode: ").gray().bold(),
+                                    Span::from(mode).bold().green()].into()]));
+    }
+
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
-        self.footer.render(frame, area)
+        let layout = Layout::horizontal([Constraint::Percentage(20), Constraint::Fill(1)]);
+        let [mode, key_mappings] = layout.areas(area);
+        self.mode.render(frame, mode);
+        self.footer.render(frame, key_mappings);
     }
 }
