@@ -52,7 +52,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             let _ = stats_consumer.consume();
 
             // receive stats
-            match stats_receiver.recv_timeout(Duration::from_secs(1)) {
+            match stats_receiver.recv_timeout(Duration::from_secs(5)) {
                 Ok(_stats) => {
                     //Update stats for message consumer
                     //message_consumer_clone.lock().update_stats(stats);

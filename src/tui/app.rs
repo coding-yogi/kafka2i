@@ -1,5 +1,6 @@
 use std::{io::Stderr, sync::Arc};
 use crossterm::event::{KeyEventKind, KeyCode};
+use log::{error, debug};
 use parking_lot::Mutex;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
@@ -8,7 +9,7 @@ use crate::kafka::consumer::Consumer;
 use crate::tui::events::TuiEvent;
 use crate::tui::widgets::Direction;
 
-use super::single_layout::{AppLayout, DetailsLayout, ListsLayout, BROKERS_LIST_NAME, CONSUMER_GROUPS_LIST_NAME, PARTITIONS_LIST_NAME, TOPICS_LIST_NAME};
+use super::single_layout::{AppLayout, BROKERS_LIST_NAME, CONSUMER_GROUPS_LIST_NAME, PARTITIONS_LIST_NAME, TOPICS_LIST_NAME};
 
 // App state maintains the state at app level
 struct AppState {
@@ -102,14 +103,20 @@ where T: ClientContext + ConsumerContext {
     // Handles broker list navigation
     // populates TUI with details of the broker selected in the list
     async fn handle_broker_list_navigation(&mut self) {
-        let lists_layout = &mut self.layout.main_layout.lists_layout;
-        let details_layout = &mut self.layout.main_layout.details_layout;
+        if let Some(selected_broker) = self.get_selected_item_for_list(BROKERS_LIST_NAME).await {
+            let broker = match self.kafka_consumer.lock().metadata().get_broker(&selected_broker) {
+                Some(broker) => broker,
+                None => {
+                    error!("Unable to get broker details for broker with name: {}", selected_broker);
+                    return;
+                }
+            };
 
-        if let Some(selected_broker) = lists_layout.get_list_by_name(BROKERS_LIST_NAME).unwrap().selected_item() {
-            let broker_id = self.kafka_consumer.lock().metadata().get_broker(&selected_broker).unwrap().id();
-            let partition_leader_count = self.kafka_consumer.lock().metadata().leader_for_paritions(broker_id);
+            // update broker details
+            let broker_id = broker.id();
+            let partition_leader_count = self.kafka_consumer.lock().metadata().no_of_partitions_for_broker(broker_id);
             let broker_details = generate_broker_details(broker_id, "UP", partition_leader_count);
-            details_layout.details.update_cell_data(BROKERS_LIST_NAME, 0, broker_details);
+            self.layout.main_layout.details_layout.details.update_cell_data(BROKERS_LIST_NAME, 0, broker_details);
         }
     }
 
@@ -117,42 +124,83 @@ where T: ClientContext + ConsumerContext {
     // populates the TUI with details of the topic selected
     // populates the parition list with paritions of the selected topic
     async fn handle_topic_list_navigation(&mut self) {
-        let lists_layout = &mut self.layout.main_layout.lists_layout;
-        let details_layout = &mut self.layout.main_layout.details_layout;
+        if let Some(selected_topic) = self.get_selected_item_for_list(TOPICS_LIST_NAME).await {
+            let topic = match self.kafka_consumer.lock().metadata().get_topic(&selected_topic) {
+                Some(topic) => topic,
+                None => {
+                    error!("Unable to get topic details for topic with name: {}", selected_topic);
+                    return;
+                }
+            };
 
-        if let Some(selected_topic) = lists_layout.get_list_by_name(TOPICS_LIST_NAME).unwrap().selected_item() {
-            // get partitions for the topic
-            if let Some(topic) = self.kafka_consumer.lock().metadata().get_topic(&selected_topic) {
-                let partitions_names = topic.partition_names();
-                self.layout.main_layout.lists_layout.get_list_by_name(PARTITIONS_LIST_NAME).unwrap().update(partitions_names);
-            }
+            let topic_details = generate_topic_details(topic.partitions().len());
+            self.layout.main_layout.details_layout.details.update_cell_data(TOPICS_LIST_NAME, 0, topic_details);
+
+            let partitions_names = topic.partition_names();
+            match self.layout.main_layout.lists_layout.get_list_by_name(PARTITIONS_LIST_NAME) {
+                Some(list) => list.update(partitions_names),
+                None => {
+                    error!("No list found by name: {}", PARTITIONS_LIST_NAME);
+                    return;
+                }
+            };
         }
     }
 
     // Handles partition list navidation
     // populates the TUI with details of the partition selected
     async fn handle_partition_list_navigation(&mut self) {
-        let lists_layout = &mut self.layout.main_layout.lists_layout;
-        let details_layout = &mut self.layout.main_layout.details_layout;
-
-        if let Some(selected_partition) = lists_layout.get_list_by_name(PARTITIONS_LIST_NAME).unwrap().selected_item() {
-            let partition = self.kafka_consumer.lock().metadata().get_partition(&selected_partition).unwrap();
-            let partition_details = generate_partition_details(partition.leader(), partition.isr().len(), partition.replicas().len());
-            details_layout.details.update_cell_data(PARTITIONS_LIST_NAME, 0, partition_details);
+        if let Some(selected_partition) = self.get_selected_item_for_list(PARTITIONS_LIST_NAME).await {
+            match self.kafka_consumer.lock().metadata().get_partition(&selected_partition) {
+                Some(partition) => {
+                    let partition_details = generate_partition_details(partition.leader(), partition.isr().len(), partition.replicas().len());
+                    self.layout.main_layout.details_layout.details.update_cell_data(PARTITIONS_LIST_NAME, 0, partition_details);
+                },
+                None => {
+                    error!("Unable to get details for partition with name: {}", selected_partition);
+                    return;
+                }
+            };
         }
     }
 
     // Handles consumer group list navigation
     // populates the TUI with the details of selected consumer groups
     async fn handle_cg_list_navigation(&mut self) {
-        let lists_layout = &mut self.layout.main_layout.lists_layout;
-        let details_layout = &mut self.layout.main_layout.details_layout;
-
-        if let Some(selected_cg) = lists_layout.get_list_by_name(CONSUMER_GROUPS_LIST_NAME).unwrap().selected_item() {
-            let cg = self.kafka_consumer.lock().metadata().get_consumer_group(&selected_cg).unwrap();
-            let cg_details = generate_consumer_group_details(cg.state(), cg.members_count());
-            details_layout.details.update_cell_data(CONSUMER_GROUPS_LIST_NAME, 0, cg_details);
+        if let Some(selected_cg) = self.get_selected_item_for_list(CONSUMER_GROUPS_LIST_NAME).await {
+            match self.kafka_consumer.lock().metadata().get_consumer_group(&selected_cg) {
+                Some(cg) => {
+                    let cg_details = generate_consumer_group_details(cg.state(), cg.members_count());
+                    self.layout.main_layout.details_layout.details.update_cell_data(CONSUMER_GROUPS_LIST_NAME, 0, cg_details);
+                },
+                None => {
+                    error!("Unable to get details for cg with name {}", selected_cg);
+                    return;
+                }
+            };
         }
+    }
+
+    // Gets the selected item for the list
+    async fn get_selected_item_for_list(&mut self, list_name: &str) -> Option<String> {
+        let lists_layout = &mut self.layout.main_layout.lists_layout;
+        let list = match  lists_layout.get_list_by_name(list_name) {
+            Some(list) => list,
+            None => {
+                error!("No list found by name: {}", list_name);
+                return None;
+            }
+        };
+
+        let selected_item = match list.selected_item() {
+            Some(item) => item,
+            None => {
+                debug!("No selected item found for list: {}", list_name);
+                return None;
+            }
+        };
+
+        return Some(selected_item);
     }
 }
 
@@ -177,4 +225,8 @@ fn generate_consumer_group_details(state: &str, members: usize) -> String {
 
 fn generate_partition_details(leader: i32, isr: usize, replicas: usize) -> String {
     format!("\nLeader : {}\nISR    : {} / {}", leader, isr, replicas)
+}
+
+fn generate_topic_details(parition_count: usize) -> String {
+    format!("\nParitions: {}", parition_count)
 }
