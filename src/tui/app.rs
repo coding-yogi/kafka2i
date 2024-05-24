@@ -1,4 +1,4 @@
-use std::{io::Stderr, sync::Arc, default};
+use std::{io::Stderr, sync::Arc};
 use crossterm::event::{KeyEventKind, KeyCode};
 use log::{error, debug};
 use parking_lot::Mutex;
@@ -169,16 +169,26 @@ where T: ClientContext + ConsumerContext {
     // populates the TUI with details of the partition selected
     async fn handle_partition_list_navigation(&mut self) {
         if let Some(selected_partition) = self.get_selected_item_for_list(PARTITIONS_LIST_NAME).await {
-            match self.kafka_consumer.lock().metadata().get_partition(&selected_partition) {
-                Some(partition) => {
-                    let partition_details = generate_partition_details(partition.leader(), partition.isr().len(), partition.replicas().len());
-                    self.layout.main_layout.details_layout.details.update_cell_data(PARTITIONS_LIST_NAME, 0, partition_details);
-                },
+            let partition = match self.kafka_consumer.lock().metadata().get_partition(&selected_partition) {
+                Some(partition) => partition,
                 None => {
                     error!("Unable to get details for partition with name: {}", selected_partition);
                     return;
                 }
             };
+
+            // get high water mark for the topic
+            let mut high_watermark: i64 = 0;
+            if let Some((topic_name, partition_id)) = get_topic_and_parition_id(&selected_partition) {
+                match self.kafka_consumer.lock().fetch_watermarks(topic_name, partition_id) {
+                    Ok((h, _)) => high_watermark = h,
+                    Err(_) => (),
+                };
+            }
+
+            let partition_details = generate_partition_details(partition.leader(), partition.isr().len(), partition.replicas().len(), high_watermark);
+            self.layout.main_layout.details_layout.details.update_cell_data(PARTITIONS_LIST_NAME, 0, partition_details);
+
         }
     }
 
@@ -241,10 +251,28 @@ fn generate_consumer_group_details(state: &str, members: usize) -> String {
     format!("\nState   : {}\nMembers : {}", state, members)
 }
 
-fn generate_partition_details(leader: i32, isr: usize, replicas: usize) -> String {
-    format!("\nLeader : {}\nISR    : {} / {}", leader, isr, replicas)
+fn generate_partition_details(leader: i32, isr: usize, replicas: usize, hwm: i64) -> String {
+    format!("\nLeader : {}\nISR    : {} / {}\nHWM    : {}", leader, isr, replicas, hwm)
 }
 
 fn generate_topic_details(parition_count: usize) -> String {
     format!("\nParitions: {}", parition_count)
+}
+
+fn get_topic_and_parition_id(partition_name: &str) -> Option<(&str, i32)> {
+    let topic_and_partition = partition_name.split("/").collect::<Vec<&str>>();
+    if topic_and_partition.len() != 2 {
+        log::error!("error splitting parition name into topic name and partition id for {}", partition_name);
+        return None;
+    }
+
+    let paritition_id = match topic_and_partition[1].parse::<i32>() {
+        Ok(id) => id,
+        Err(_) => {
+            log::error!("unable to parse partition id {} into integer", topic_and_partition[1]);
+            return None;
+        }
+    };
+
+    Some((topic_and_partition[0], paritition_id))
 }
