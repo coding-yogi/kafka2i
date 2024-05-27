@@ -402,7 +402,7 @@ impl <'a> UITable<'a> {
 
         let mut rows: Vec<Row> = vec![];
         for data_row in data.iter() {
-            rows.push(Row::new(data_row.clone()).height(4));
+            rows.push(Row::new(data_row.clone()).height(5));
         }
 
         UITable {
@@ -423,7 +423,7 @@ impl <'a> UITable<'a> {
         
         let mut rows: Vec<Row> = vec![];
         for data_row in &self.data {
-            rows.push(Row::new(data_row.clone()).height(4));
+            rows.push(Row::new(data_row.clone()).height(5));
         }
         
         self.table = self.table.clone().rows(rows);

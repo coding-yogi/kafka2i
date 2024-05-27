@@ -12,7 +12,7 @@ use rdkafka::{
     metadata::Metadata as KafkaMetadata,
     message::BorrowedMessage, 
     Offset, 
-    TopicPartitionList, config::FromClientConfigAndContext, ClientContext, Statistics,
+    TopicPartitionList, config::FromClientConfigAndContext, ClientContext, Statistics, statistics::TopicPartition, types::RDKafkaErrorCode,
 };
 
 use crate::kafka::metadata::{Metadata, Topic};
@@ -215,6 +215,21 @@ where T: ClientContext + ConsumerContext
     pub fn fetch_watermarks(&self, topic: &str, partition: i32) -> Result<(i64, i64)>{
         let watermarks = self.base_consumer.fetch_watermarks(topic, partition, self.default_timeout_in_secs)?;
         Ok(watermarks)
+    }
+
+    pub fn fetch_offset(&self, topic: &str, partition: i32) -> Result<i64> {
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_partition(topic, partition);
+
+        tpl = self.base_consumer.committed_offsets(tpl, self.default_timeout_in_secs)?;
+        if let Some(tp) = tpl.elements().first() {
+            if let Some(raw_offset) = tp.offset().to_raw() {
+                return Ok(raw_offset);
+            }
+        }
+
+        log::error!("failed to retrieve offset for topic {} & partition {}", topic, partition);
+        Err(KafkaError::OffsetFetch(RDKafkaErrorCode::Fail).into())
     }
 }
 

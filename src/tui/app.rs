@@ -1,4 +1,4 @@
-use std::{io::Stderr, sync::Arc};
+use std::{io::Stderr, sync::Arc, thread};
 use crossterm::event::{KeyEventKind, KeyCode};
 use log::{error, debug};
 use parking_lot::Mutex;
@@ -176,17 +176,36 @@ where T: ClientContext + ConsumerContext {
                     return;
                 }
             };
-
+            
             // get high water mark for the topic
-            let mut high_watermark: i64 = 0;
+            let mut high_watermark: i64 = -999;
+            let mut offset: i64 = -999;
+
             if let Some((topic_name, partition_id)) = get_topic_and_parition_id(&selected_partition) {
-                match self.kafka_consumer.lock().fetch_watermarks(topic_name, partition_id) {
-                    Ok((h, _)) => high_watermark = h,
-                    Err(_) => (),
-                };
+                thread::scope(|s| {
+                    s.spawn(|| {
+                        match self.kafka_consumer.lock().fetch_watermarks(topic_name, partition_id) {
+                            Ok((_, h)) => {
+                                high_watermark = h;
+                                debug!("fetched hwm: {}", h);
+                            },
+                            Err(err) => error!("error while fetching watermark {}", err),
+                        };
+                    });
+
+                    s.spawn(|| {
+                       match self.kafka_consumer.lock().fetch_offset(topic_name, partition_id) {
+                            Ok(o) => {
+                                offset = o;
+                                debug!("fetched offset: {}", o);
+                            },
+                            Err(err) => error!("error while fetching offsets {}", err),
+                       };
+                    });
+                });
             }
 
-            let partition_details = generate_partition_details(partition.leader(), partition.isr().len(), partition.replicas().len(), high_watermark);
+            let partition_details = generate_partition_details(partition.leader(), partition.isr().len(), partition.replicas().len(), high_watermark, offset);
             self.layout.main_layout.details_layout.details.update_cell_data(PARTITIONS_LIST_NAME, 0, partition_details);
 
         }
@@ -251,8 +270,8 @@ fn generate_consumer_group_details(state: &str, members: usize) -> String {
     format!("\nState   : {}\nMembers : {}", state, members)
 }
 
-fn generate_partition_details(leader: i32, isr: usize, replicas: usize, hwm: i64) -> String {
-    format!("\nLeader : {}\nISR    : {} / {}\nHWM    : {}", leader, isr, replicas, hwm)
+fn generate_partition_details(leader: i32, isr: usize, replicas: usize, hwm: i64, offset: i64) -> String {
+    format!("\nLeader : {}\nISR    : {} / {}\nHWM    : {}\nOffset : {}", leader, isr, replicas, hwm, offset)
 }
 
 fn generate_topic_details(parition_count: usize) -> String {
