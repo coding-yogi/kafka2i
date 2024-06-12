@@ -1,17 +1,20 @@
-use std::{error::Error, io::Stderr, time::Duration, sync::Arc};
+use std::{error::Error, io::Stderr, sync::Arc, thread, time::Duration};
 
 use clap::Parser;
-use crossbeam::channel::bounded;
+use crossbeam::channel::{bounded, unbounded};
+use crossterm::event::{KeyEventKind, KeyCode};
 use kafka::consumer::StatsContext;
 use parking_lot::Mutex;
 use rdkafka::{consumer::ConsumerContext, ClientConfig, ClientContext, Statistics};
 use crossterm::{terminal::{enable_raw_mode, EnterAlternateScreen, disable_raw_mode, LeaveAlternateScreen}, execute};
-use ratatui::{prelude::CrosstermBackend, Terminal};
-use tokio::time;
-use tui::{app::App, events};
+use ratatui::{layout, prelude::CrosstermBackend, Terminal};
+use tokio::{time, runtime::Builder};
+use tui::{app::App, app::AppEvent, events};
 
 use crate::kafka::consumer::{Consumer, DefaultContext};
 use crate::config::Config;
+use crate::tui::events::TuiEvent;
+use crate::tui::widgets::Direction;
 
 mod kafka;
 mod cmd;
@@ -207,17 +210,51 @@ fn shutdown() -> Result<(), Box<dyn Error>> {
 
 async fn run<'a, T: ClientContext + ConsumerContext>(t: &'a mut Terminal<CrosstermBackend<Stderr>>, consumer: Arc<Mutex<Consumer<T>>>) -> Result<(), Box<dyn Error>> {
     // ratatui terminal
-    let mut app = App::new(t, consumer).await;
+    let (sender, receiver) = unbounded::<AppEvent>();
+    let mut app = App::new(consumer, receiver).await;
+    let app_layout = app.layout();
     let mut events = events::EventHandler::new(1.0, 30.0);
 
-    loop {
-        let event = events.next().await?;
-        app.event_handler(event).await;
+    // spawn 2 scoped threads
 
-        if app.should_quit() {
-            break;
-        }
-    }
-       
+    thread::scope(|s| {
+        let h1 = s.spawn(|| {
+            loop {
+                let event = events.next().unwrap();
+                match event {
+                    TuiEvent::Key(key) => {
+                        match key.kind {
+                            KeyEventKind::Press => {
+                                match key.code {
+                                    KeyCode::Tab => sender.send(AppEvent::Tab),
+                                    KeyCode::Up => sender.send(AppEvent::Up),
+                                    KeyCode::Down => sender.send(AppEvent::Down),
+                                    KeyCode::Esc => {
+                                        sender.send(AppEvent::Esc);
+                                        break;
+                                    },
+                                    _ => Ok(())
+                                };
+                            }
+                            // any other KeyEventKind
+                            _ => ()
+                        }
+                    },
+                    TuiEvent::Render => {
+                        t.draw(|f| {
+                            app_layout.lock().render(f)
+                        });
+                    } ,
+                    // ignore any other events for now
+                    _ => ()
+                }
+            }
+        });
+
+        let h2 = s.spawn(|| {
+            app.event_handler()
+        });
+    });
+   
     Ok(())
 }

@@ -1,4 +1,5 @@
 use std::{io::Stderr, sync::Arc, thread};
+use crossbeam::channel::Receiver;
 use crossterm::event::{KeyEventKind, KeyCode};
 use log::{error, debug};
 use parking_lot::Mutex;
@@ -22,6 +23,13 @@ enum Mode {
     Producer
 }
 
+pub enum AppEvent {
+    Tab,
+    Up,
+    Down,
+    Esc
+}
+
 // App state maintains the state at app level
 struct AppState {
     // should_quit tells the main loop to terminate the app
@@ -37,32 +45,38 @@ struct AppState {
 pub struct App<'a, T> 
 where T: ClientContext + ConsumerContext
 {
-    layout: AppLayout<'a>,
+    layout: Arc<Mutex<AppLayout<'a>>>,
     state: AppState,
-    terminal: &'a mut Terminal<CrosstermBackend<Stderr>>,
+    //terminal: &'a mut Terminal<CrosstermBackend<Stderr>>,
     kafka_consumer: Arc<Mutex<Consumer<T>>>,
+    app_event_recv: Receiver<AppEvent>,
 }
 
 // This impl block only defines the new state of the app
 impl <'a, T> App<'a, T> 
 where T: ClientContext + ConsumerContext
 {
-    pub async fn new(t: &'a mut Terminal<CrosstermBackend<Stderr>>, kafka_consumer: Arc<Mutex<Consumer<T>>>) -> App<'a, T> {
+    pub async fn new(kafka_consumer: Arc<Mutex<Consumer<T>>>, app_event_recv: Receiver<AppEvent>) -> App<'a, T> {
        let metadata = kafka_consumer.lock().metadata().clone();
        let mode = Mode::default();
 
-        let mut app = App {
-           layout: AppLayout::new(&metadata),
+        let app = App {
+           layout: Arc::new(Mutex::new(AppLayout::new(&metadata))),
            state: AppState {
                 should_quit: false,
                 mode: mode.clone(),
            },
-           terminal: t,
+           //terminal: t,
            kafka_consumer,
+           app_event_recv
         };
 
-        app.layout.footer_layout.update_mode(mode.to_string());
+        app.layout.lock().footer_layout.update_mode(mode.to_string());
         app
+    }
+
+    pub fn layout(&self) -> Arc<Mutex<AppLayout<'a>>> {
+        self.layout.clone()
     }
 }
 
@@ -75,8 +89,22 @@ where T: ClientContext + ConsumerContext {
     }
     
     // Event handler which defines the high level handlers for every type of event handled in TUI
-    pub async fn event_handler(&mut self, event: TuiEvent) {
-        match event {
+    pub fn event_handler(&mut self) {
+        loop {
+            match self.app_event_recv.recv() {
+                Ok(event) => match event {
+                    AppEvent::Tab => self.handle_tab(),
+                    AppEvent::Up => self.handle_list_navigation(Direction::UP),
+                    AppEvent::Down => self.handle_list_navigation(Direction::DOWN),
+                    AppEvent::Esc => {
+                        self.state.should_quit = true;
+                        break;
+                    }
+                },
+                Err(err) => log::error!("error occured while receiving app event")
+            }
+        }
+        /*match event {
             TuiEvent::Key(key) => {
                 match key.kind {
                     KeyEventKind::Press => {
@@ -95,33 +123,36 @@ where T: ClientContext + ConsumerContext {
             TuiEvent::Render => self.render(),
             // ignore any other events for now
             _ => ()
-        }
+        }*/
     }
 
     // Handles tab event which switches between the available tabs
-    async fn handle_tab(&mut self) {
-        self.layout.main_layout.lists_layout.hande_tab();
+    fn handle_tab(&mut self) {
+        self.layout.lock().main_layout.lists_layout.hande_tab();
     }
 
     // Handles the list navigation for the list in focus 
-    async fn handle_list_navigation(&mut self, direction: Direction){
-        let lists_layout = &mut self.layout.main_layout.lists_layout;
+    fn handle_list_navigation(&mut self, direction: Direction){
+        let mut layout_guard = self.layout.lock();
+        let lists_layout = &mut layout_guard.main_layout.lists_layout;
         lists_layout.handle_navigation(direction);
+        let seleted_list_name = lists_layout.selected_list().name().to_string().clone();
+        drop(layout_guard);
 
         // handle navigation events
-        match lists_layout.selected_list().name() {
-            BROKERS_LIST_NAME => self.handle_broker_list_navigation().await,
-            TOPICS_LIST_NAME => self.handle_topic_list_navigation().await,
-            CONSUMER_GROUPS_LIST_NAME => self.handle_cg_list_navigation().await,
-            PARTITIONS_LIST_NAME => self.handle_partition_list_navigation().await,
+        match seleted_list_name.as_str() {
+            BROKERS_LIST_NAME => self.handle_broker_list_navigation(),
+            TOPICS_LIST_NAME => self.handle_topic_list_navigation(),
+            CONSUMER_GROUPS_LIST_NAME => self.handle_cg_list_navigation(),
+            PARTITIONS_LIST_NAME => self.handle_partition_list_navigation(),
             _ => log::error!("Selected list has an invalid name")
         }
     }
 
     // Handles broker list navigation
     // populates TUI with details of the broker selected in the list
-    async fn handle_broker_list_navigation(&mut self) {
-        if let Some(selected_broker) = self.get_selected_item_for_list(BROKERS_LIST_NAME).await {
+    fn handle_broker_list_navigation(&mut self) {
+        if let Some(selected_broker) = self.get_selected_item_for_list(BROKERS_LIST_NAME) {
             let broker = match self.kafka_consumer.lock().metadata().get_broker(&selected_broker) {
                 Some(broker) => broker,
                 None => {
@@ -134,15 +165,15 @@ where T: ClientContext + ConsumerContext {
             let broker_id = broker.id();
             let partition_leader_count = self.kafka_consumer.lock().metadata().no_of_partitions_for_broker(broker_id);
             let broker_details = generate_broker_details(broker_id, "UP", partition_leader_count);
-            self.layout.main_layout.details_layout.details.update_cell_data(BROKERS_LIST_NAME, 0, broker_details);
+            self.layout.lock().main_layout.details_layout.details.update_cell_data(BROKERS_LIST_NAME, 0, broker_details);
         }
     }
 
     // Handles topic list navigation
     // populates the TUI with details of the topic selected
     // populates the parition list with paritions of the selected topic
-    async fn handle_topic_list_navigation(&mut self) {
-        if let Some(selected_topic) = self.get_selected_item_for_list(TOPICS_LIST_NAME).await {
+    fn handle_topic_list_navigation(&mut self) {
+        if let Some(selected_topic) = self.get_selected_item_for_list(TOPICS_LIST_NAME) {
             let topic = match self.kafka_consumer.lock().metadata().get_topic(&selected_topic) {
                 Some(topic) => topic,
                 None => {
@@ -152,10 +183,10 @@ where T: ClientContext + ConsumerContext {
             };
 
             let topic_details = generate_topic_details(topic.partitions().len());
-            self.layout.main_layout.details_layout.details.update_cell_data(TOPICS_LIST_NAME, 0, topic_details);
+            self.layout.lock().main_layout.details_layout.details.update_cell_data(TOPICS_LIST_NAME, 0, topic_details);
 
             let partitions_names = topic.partition_names();
-            match self.layout.main_layout.lists_layout.get_list_by_name(PARTITIONS_LIST_NAME) {
+            match self.layout.lock().main_layout.lists_layout.get_list_by_name(PARTITIONS_LIST_NAME) {
                 Some(list) => list.update(partitions_names),
                 None => {
                     error!("No list found by name: {}", PARTITIONS_LIST_NAME);
@@ -167,8 +198,8 @@ where T: ClientContext + ConsumerContext {
 
     // Handles partition list navidation
     // populates the TUI with details of the partition selected
-    async fn handle_partition_list_navigation(&mut self) {
-        if let Some(selected_partition) = self.get_selected_item_for_list(PARTITIONS_LIST_NAME).await {
+    fn handle_partition_list_navigation(&mut self) {
+        if let Some(selected_partition) = self.get_selected_item_for_list(PARTITIONS_LIST_NAME) {
             let partition = match self.kafka_consumer.lock().metadata().get_partition(&selected_partition) {
                 Some(partition) => partition,
                 None => {
@@ -206,19 +237,19 @@ where T: ClientContext + ConsumerContext {
             }
 
             let partition_details = generate_partition_details(partition.leader(), partition.isr().len(), partition.replicas().len(), high_watermark, offset);
-            self.layout.main_layout.details_layout.details.update_cell_data(PARTITIONS_LIST_NAME, 0, partition_details);
+            self.layout.lock().main_layout.details_layout.details.update_cell_data(PARTITIONS_LIST_NAME, 0, partition_details);
 
         }
     }
 
     // Handles consumer group list navigation
     // populates the TUI with the details of selected consumer groups
-    async fn handle_cg_list_navigation(&mut self) {
-        if let Some(selected_cg) = self.get_selected_item_for_list(CONSUMER_GROUPS_LIST_NAME).await {
+    fn handle_cg_list_navigation(&mut self) {
+        if let Some(selected_cg) = self.get_selected_item_for_list(CONSUMER_GROUPS_LIST_NAME) {
             match self.kafka_consumer.lock().metadata().get_consumer_group(&selected_cg) {
                 Some(cg) => {
                     let cg_details = generate_consumer_group_details(cg.state(), cg.members_count());
-                    self.layout.main_layout.details_layout.details.update_cell_data(CONSUMER_GROUPS_LIST_NAME, 0, cg_details);
+                    self.layout.lock().main_layout.details_layout.details.update_cell_data(CONSUMER_GROUPS_LIST_NAME, 0, cg_details);
                 },
                 None => {
                     error!("Unable to get details for cg with name {}", selected_cg);
@@ -229,8 +260,8 @@ where T: ClientContext + ConsumerContext {
     }
 
     // Gets the selected item for the list
-    async fn get_selected_item_for_list(&mut self, list_name: &str) -> Option<String> {
-        let lists_layout = &mut self.layout.main_layout.lists_layout;
+    fn get_selected_item_for_list(&mut self, list_name: &str) -> Option<String> {
+        let lists_layout = &mut self.layout.lock().main_layout.lists_layout;
         let list = match  lists_layout.get_list_by_name(list_name) {
             Some(list) => list,
             None => {
@@ -252,15 +283,16 @@ where T: ClientContext + ConsumerContext {
 }
 
 // this impl block handles app rendering logic
+/* 
 impl <T> App<'_, T> 
 where T: ClientContext + ConsumerContext
 {
     pub fn render(&mut self) {
         let _ = self.terminal.draw(|f| {
-            self.layout.render(f); 
+            self.layout.lock().render(f); 
         });
     }
-}
+}*/
 
 fn generate_broker_details(id: i32, status: &str, partitions: usize) -> String {
     format!("\nID         : {}\nStatus     : {}\nPartitions : {}", id, status, partitions)

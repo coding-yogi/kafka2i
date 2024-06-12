@@ -2,6 +2,7 @@ use futures::{StreamExt, FutureExt};
 use tokio::{
     sync::mpsc,
     task::JoinHandle,
+    runtime::Builder,
 };
 
 
@@ -86,7 +87,8 @@ impl EventHandler {
     ///
     /// This function will always block the current thread if
     /// there is no data available and it's possible for more data to be sent.
-    pub async fn next(&mut self) -> Result<TuiEvent> {
-        self.rx.recv().await.ok_or(color_eyre::eyre::eyre!("unable to get event"))
+    pub fn next(&mut self) -> Result<TuiEvent> {
+        let rt = Builder::new_current_thread().enable_all().build().unwrap();
+        rt.block_on(self.rx.recv()).ok_or(color_eyre::eyre::eyre!("unable to get event"))
     }
 }
