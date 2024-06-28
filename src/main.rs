@@ -7,14 +7,13 @@ use kafka::consumer::StatsContext;
 use parking_lot::Mutex;
 use rdkafka::{consumer::ConsumerContext, ClientConfig, ClientContext, Statistics};
 use crossterm::{terminal::{enable_raw_mode, EnterAlternateScreen, disable_raw_mode, LeaveAlternateScreen}, execute};
-use ratatui::{layout, prelude::CrosstermBackend, Terminal};
-use tokio::{time, runtime::Builder};
+use ratatui::{prelude::CrosstermBackend, Terminal};
+use tokio::time;
 use tui::{app::App, app::AppEvent, events};
 
 use crate::kafka::consumer::{Consumer, DefaultContext};
 use crate::config::Config;
 use crate::tui::events::TuiEvent;
-use crate::tui::widgets::Direction;
 
 mod kafka;
 mod cmd;
@@ -215,33 +214,44 @@ async fn run<'a, T: ClientContext + ConsumerContext>(t: &'a mut Terminal<Crosste
     let app_layout = app.layout();
     let mut events = events::EventHandler::new(1.0, 30.0);
 
+    let should_quit = Arc::new(Mutex::new(false));
+    let should_quit_clone = should_quit.clone();
+
     // spawn 2 scoped threads
 
     thread::scope(|s| {
-        let h1 = s.spawn(|| {
+        s.spawn(|| {
             loop {
                 let event = events.next().unwrap();
                 match event {
                     TuiEvent::Key(key) => {
                         match key.kind {
                             KeyEventKind::Press => {
-                                match key.code {
+                                let _ = match key.code {
                                     KeyCode::Tab => sender.send(AppEvent::Tab),
                                     KeyCode::Up => sender.send(AppEvent::Up),
                                     KeyCode::Down => sender.send(AppEvent::Down),
+                                    KeyCode::Left => sender.send(AppEvent::Left),
+                                    KeyCode::Right => sender.send(AppEvent::Right),
                                     KeyCode::Esc => {
-                                        sender.send(AppEvent::Esc);
-                                        break;
+                                        let res = sender.send(AppEvent::Esc);
+                                        if *should_quit.lock() {
+                                            break;
+                                        }
+                                        res
                                     },
+                                    KeyCode::Char(':') => sender.send(AppEvent::Edit),
+                                    KeyCode::Char(input) => sender.send(AppEvent::Input(input)),
+                                    KeyCode::Backspace => sender.send(AppEvent::Backspace),
                                     _ => Ok(())
                                 };
                             }
-                            // any other KeyEventKind
+                            // for any other KeyEventKind
                             _ => ()
                         }
                     },
                     TuiEvent::Render => {
-                        t.draw(|f| {
+                       let _ =  t.draw(|f| {
                             app_layout.lock().render(f)
                         });
                     } ,
@@ -251,8 +261,9 @@ async fn run<'a, T: ClientContext + ConsumerContext>(t: &'a mut Terminal<Crosste
             }
         });
 
-        let h2 = s.spawn(|| {
-            app.event_handler()
+        s.spawn(|| {
+            app.event_handler();
+            *should_quit_clone.lock() = true;
         });
     });
    

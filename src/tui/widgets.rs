@@ -3,6 +3,7 @@ use ratatui::{
     text::{self, Span, Text}, style::{Style, Modifier, Color, palette::tailwind, Stylize}, 
     prelude::Rect, Frame, symbols, layout::Constraint,
 };
+use tui_input::{Input, InputRequest};
 
 const HIGHLIGHT_COLOR: Color = Color::Yellow;
 const NORMAL_COLOR: Color = Color::Green;
@@ -10,6 +11,8 @@ const NORMAL_COLOR: Color = Color::Green;
 pub enum Direction {
     UP,
     DOWN,
+    LEFT,
+    RIGHT
 }
 
 pub trait AppWidget {
@@ -179,6 +182,7 @@ impl <'a> UIList <'a> {
         match direction {
             Direction::UP => self.handle_up(),
             Direction::DOWN => self.handle_down(), 
+            _ => (),
         }
     }
 
@@ -335,6 +339,58 @@ fn create_block<'a>(color: Color, name: String, with_border: bool) -> Block<'a> 
     }
 
     block
+}
+
+#[derive(Clone)]
+pub struct UIInput<'a> {
+    paragraph: UIParagraph<'a>,
+    input: Input,
+}
+
+impl <'a> UIInput<'a> {
+    pub fn new(name: String) -> UIInput<'a> {
+        UIInput {
+            paragraph: UIParagraph::new(name, "".into()),
+            input: Input::default(),
+        }
+    }
+
+    fn reset(&mut self) {
+        self.input.reset();
+    }
+
+    pub fn enter_char(&mut self, new_char: char) {
+        self.input.handle(InputRequest::InsertChar(new_char));
+        self.paragraph.update(self.input.value().to_string().into());
+    }
+
+    pub fn remove_previous_char(&mut self) {
+        self.input.handle(InputRequest::DeletePrevChar);
+        self.paragraph.update(self.input.value().to_string().into());
+    }
+
+    pub fn move_cursor(&mut self, direction: Direction) {
+        match direction {
+            Direction::LEFT => self.input.handle(InputRequest::GoToPrevChar),
+            Direction::RIGHT => self.input.handle(InputRequest::GoToNextChar),
+            _ => None,
+        };
+    }
+
+}
+
+impl <'a> AppWidget for UIInput<'a> {
+    fn render(&mut self, frame: &mut Frame, area: Rect) {
+        self.paragraph.render(frame, area);
+    }
+
+    fn normalise_border(&mut self) {
+        self.paragraph.normalise_border();
+    }
+
+    fn highlight_border(&mut self) {
+        self.paragraph.highlight_border();
+    }
 }
 
 #[derive(Clone)]

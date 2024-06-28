@@ -1,14 +1,10 @@
-use std::{io::Stderr, sync::Arc, thread};
+use std::{char, sync::Arc, thread};
 use crossbeam::channel::Receiver;
-use crossterm::event::{KeyEventKind, KeyCode};
-use log::{error, debug};
+use log::{debug, error, info};
 use parking_lot::Mutex;
-use ratatui::Terminal;
-use ratatui::backend::CrosstermBackend;
 use rdkafka::{ClientContext, consumer::ConsumerContext};
 use strum::{self, Display};
 use crate::kafka::consumer::Consumer;
-use crate::tui::events::TuiEvent;
 use crate::tui::widgets::Direction;
 
 use super::single_layout::{AppLayout, BROKERS_LIST_NAME, CONSUMER_GROUPS_LIST_NAME, PARTITIONS_LIST_NAME, TOPICS_LIST_NAME};
@@ -23,11 +19,22 @@ enum Mode {
     Producer
 }
 
+#[derive(PartialEq)]
+enum EditMode {
+    Normal,
+    Editing
+}
+
 pub enum AppEvent {
     Tab,
     Up,
     Down,
-    Esc
+    Left,
+    Right,
+    Esc,
+    Edit,
+    Input(char),
+    Backspace,
 }
 
 // App state maintains the state at app level
@@ -36,6 +43,8 @@ struct AppState {
     should_quit: bool,
     //mode
     mode: Mode,
+    //edit mode
+    edit_mode: EditMode,
 }
 
 // App is the high level struct containing
@@ -65,6 +74,7 @@ where T: ClientContext + ConsumerContext
            state: AppState {
                 should_quit: false,
                 mode: mode.clone(),
+                edit_mode: EditMode::Normal,
            },
            //terminal: t,
            kafka_consumer,
@@ -92,38 +102,39 @@ where T: ClientContext + ConsumerContext {
     pub fn event_handler(&mut self) {
         loop {
             match self.app_event_recv.recv() {
-                Ok(event) => match event {
-                    AppEvent::Tab => self.handle_tab(),
-                    AppEvent::Up => self.handle_list_navigation(Direction::UP),
-                    AppEvent::Down => self.handle_list_navigation(Direction::DOWN),
-                    AppEvent::Esc => {
-                        self.state.should_quit = true;
-                        break;
+                Ok(event) => {
+                    match self.state.edit_mode {
+                        EditMode::Normal => {
+                            match event {
+                                AppEvent::Tab => {
+                                    info!("handling tab event");
+                                    self.handle_tab();
+                                },
+                                AppEvent::Up => self.handle_list_navigation(Direction::UP),
+                                AppEvent::Down => self.handle_list_navigation(Direction::DOWN),
+                                AppEvent::Esc => {
+                                    self.state.should_quit = true;
+                                    break;
+                                },
+                                AppEvent::Edit => self.switch_to_edit_mode(),
+                                _ => (),
+                            }
+                        },
+                        EditMode::Editing => {
+                            match event {
+                                AppEvent::Esc => self.switch_to_normal_mode(),
+                                AppEvent::Input(char) => self.accept_input(char),
+                                AppEvent::Backspace => self.remove_previous_char(),
+                                AppEvent::Left => self.move_cursor(Direction::LEFT),
+                                AppEvent::Right => self.move_cursor(Direction::RIGHT),
+                                _ => (),
+                            }
+                        },
                     }
                 },
-                Err(err) => log::error!("error occured while receiving app event")
+                Err(_) => log::error!("error occured while receiving app event")
             }
         }
-        /*match event {
-            TuiEvent::Key(key) => {
-                match key.kind {
-                    KeyEventKind::Press => {
-                        match key.code {
-                            KeyCode::Tab => self.handle_tab().await,
-                            KeyCode::Up => self.handle_list_navigation(Direction::UP).await,
-                            KeyCode::Down => self.handle_list_navigation(Direction::DOWN).await,
-                            KeyCode::Esc => self.state.should_quit = true,
-                            _ => ()
-                        }
-                    }
-                    // any other KeyEventKind
-                    _ => ()
-                }
-            }
-            TuiEvent::Render => self.render(),
-            // ignore any other events for now
-            _ => ()
-        }*/
     }
 
     // Handles tab event which switches between the available tabs
@@ -261,16 +272,20 @@ where T: ClientContext + ConsumerContext {
 
     // Gets the selected item for the list
     fn get_selected_item_for_list(&mut self, list_name: &str) -> Option<String> {
-        let lists_layout = &mut self.layout.lock().main_layout.lists_layout;
-        let list = match  lists_layout.get_list_by_name(list_name) {
-            Some(list) => list,
+        let mut layout_guard = self.layout.lock();
+        let lists_layout = &mut layout_guard.main_layout.lists_layout;
+
+        let selected_item = match lists_layout.get_list_by_name(list_name) {
+            Some(list) => list.selected_item(),
             None => {
                 error!("No list found by name: {}", list_name);
                 return None;
             }
         };
 
-        let selected_item = match list.selected_item() {
+        drop(layout_guard);
+
+        let item = match selected_item {
             Some(item) => item,
             None => {
                 debug!("No selected item found for list: {}", list_name);
@@ -278,21 +293,30 @@ where T: ClientContext + ConsumerContext {
             }
         };
 
-        return Some(selected_item);
+        return Some(item);
+    }
+
+    fn switch_to_edit_mode(&mut self) {
+        self.state.edit_mode = EditMode::Editing;
+        self.layout.lock().footer_layout.enter_edit_mode();
+    }
+
+    fn switch_to_normal_mode(&mut self) {
+        self.state.edit_mode = EditMode::Normal;
+    }
+
+    fn accept_input(&mut self, c: char) {
+        self.layout.lock().footer_layout.accept_input(c);
+    }
+
+    fn remove_previous_char(&mut self) {
+        self.layout.lock().footer_layout.remove_last_char();
+    }
+
+    fn move_cursor(&mut self, direction: Direction) {
+        self.layout().lock().footer_layout.move_cursor(direction);
     }
 }
-
-// this impl block handles app rendering logic
-/* 
-impl <T> App<'_, T> 
-where T: ClientContext + ConsumerContext
-{
-    pub fn render(&mut self) {
-        let _ = self.terminal.draw(|f| {
-            self.layout.lock().render(f); 
-        });
-    }
-}*/
 
 fn generate_broker_details(id: i32, status: &str, partitions: usize) -> String {
     format!("\nID         : {}\nStatus     : {}\nPartitions : {}", id, status, partitions)

@@ -1,7 +1,7 @@
-use ratatui::{layout::{Constraint, Layout, Rect, self}, Frame, text::{Text, Span, Line}, widgets::ScrollbarOrientation, style::{Stylize, Color}};
+use ratatui::{layout::{Constraint, Layout, Rect}, Frame, text::{Text, Span}, widgets::ScrollbarOrientation, style::{Stylize}};
 use crate::kafka::metadata::Metadata;
 
-use super::widgets::{UIParagraph, UIParagraphWithScrollbar, UIList, AppWidget, Direction, UITable};
+use super::widgets::{AppWidget, Direction, UIInput, UIList, UIParagraph, UIParagraphWithScrollbar, UITable};
 
 const APP_NAME: &str = "Kafka2i - TUI for Kafka";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -178,7 +178,8 @@ impl <'a> DetailsLayout<'a> {
 // Footer Layout
 pub struct FooterLayout<'a> {
     pub mode: UIParagraph<'a>,
-    pub footer: UIParagraph<'a>
+    pub footer: UIParagraph<'a>,
+    pub input: UIInput<'a>,
 }
 
 impl <'a> FooterLayout<'a> {
@@ -187,7 +188,8 @@ impl <'a> FooterLayout<'a> {
             mode: UIParagraph::new("".to_string(), Text::default()),
             footer: UIParagraph::new("".to_string(), Text::from(vec![
                 Span::from(APP_FOOTER).gray().into_centered_line(),
-            ]))
+            ])),
+            input: UIInput::new("".to_string()),
         }
     }
 
@@ -197,10 +199,27 @@ impl <'a> FooterLayout<'a> {
                                     Span::from(mode).bold().green()].into()]));
     }
 
+    pub fn enter_edit_mode(&mut self) {
+        self.input.enter_char(':');
+    }
+
+    pub fn accept_input(&mut self, c: char) {
+        self.input.enter_char(c);
+    }
+
+    pub fn remove_last_char(&mut self) {
+        self.input.remove_previous_char();
+    }
+
+    pub fn move_cursor(&mut self, direction: Direction) {
+        self.input.move_cursor(direction);
+    }
+
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
-        let layout = Layout::horizontal([Constraint::Percentage(20), Constraint::Fill(1)]);
-        let [mode, key_mappings] = layout.areas(area);
+        let layout = Layout::horizontal([Constraint::Percentage(20), Constraint::Percentage(60), Constraint::Percentage(20)]);
+        let [mode, key_mappings, input] = layout.areas(area);
         self.mode.render(frame, mode);
         self.footer.render(frame, key_mappings);
+        self.input.render(frame, input);
     }
 }
