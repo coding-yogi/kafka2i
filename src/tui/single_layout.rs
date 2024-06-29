@@ -1,7 +1,7 @@
 use ratatui::{layout::{Constraint, Layout, Rect}, Frame, text::{Text, Span}, widgets::ScrollbarOrientation, style::{Stylize}};
 use crate::kafka::metadata::Metadata;
 
-use super::widgets::{AppWidget, Direction, UIInput, UIList, UIParagraph, UIParagraphWithScrollbar, UITable};
+use super::widgets::{AppWidget, Direction, InputEvent, UIInput, UIList, UIParagraph, UIParagraphWithScrollbar, UITable};
 
 const APP_NAME: &str = "Kafka2i - TUI for Kafka";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -199,20 +199,12 @@ impl <'a> FooterLayout<'a> {
                                     Span::from(mode).bold().green()].into()]));
     }
 
-    pub fn enter_edit_mode(&mut self) {
-        self.input.enter_char(':');
+    pub fn handle_input_event(&mut self, event: InputEvent) {
+        self.input.handle_event(event);
     }
 
-    pub fn accept_input(&mut self, c: char) {
-        self.input.enter_char(c);
-    }
-
-    pub fn remove_last_char(&mut self) {
-        self.input.remove_previous_char();
-    }
-
-    pub fn move_cursor(&mut self, direction: Direction) {
-        self.input.move_cursor(direction);
+    pub fn input_value(&mut self) -> String {
+        self.input.value()
     }
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {

@@ -1,3 +1,6 @@
+use std::char;
+
+use crossterm::event;
 use ratatui::{
     widgets::{List, Block, ListItem, Borders, ListState, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Tabs, Table, Row, TableState}, 
     text::{self, Span, Text}, style::{Style, Modifier, Color, palette::tailwind, Stylize}, 
@@ -341,6 +344,14 @@ fn create_block<'a>(color: Color, name: String, with_border: bool) -> Block<'a> 
     block
 }
 
+pub enum InputEvent {
+    NewChar(char),
+    RemovePrevChar,
+    RemoveNextChar,
+    MoveCursor(Direction),
+    Reset,
+}
+
 #[derive(Clone)]
 pub struct UIInput<'a> {
     paragraph: UIParagraph<'a>,
@@ -355,21 +366,32 @@ impl <'a> UIInput<'a> {
         }
     }
 
-    fn reset(&mut self) {
-        self.input.reset();
+    pub fn handle_event(&mut self, event: InputEvent) {
+        match event {
+            InputEvent::NewChar(c) => self.enter_char(c),
+            InputEvent::RemovePrevChar => self.remove_previous_char(),
+            InputEvent::RemoveNextChar => (),
+            InputEvent::MoveCursor(d) => self.move_cursor(d),
+            InputEvent::Reset => self.reset(),
+        }
     }
 
-    pub fn enter_char(&mut self, new_char: char) {
+    fn reset(&mut self) {
+        self.input.reset();
+        self.paragraph.update("".into());
+    }
+
+    fn enter_char(&mut self, new_char: char) {
         self.input.handle(InputRequest::InsertChar(new_char));
         self.paragraph.update(self.input.value().to_string().into());
     }
 
-    pub fn remove_previous_char(&mut self) {
+    fn remove_previous_char(&mut self) {
         self.input.handle(InputRequest::DeletePrevChar);
         self.paragraph.update(self.input.value().to_string().into());
     }
 
-    pub fn move_cursor(&mut self, direction: Direction) {
+    fn move_cursor(&mut self, direction: Direction) {
         match direction {
             Direction::LEFT => self.input.handle(InputRequest::GoToPrevChar),
             Direction::RIGHT => self.input.handle(InputRequest::GoToNextChar),
@@ -377,6 +399,9 @@ impl <'a> UIInput<'a> {
         };
     }
 
+    pub fn value(&mut self) -> String {
+        self.input.value().to_string()
+    }
 }
 
 impl <'a> AppWidget for UIInput<'a> {

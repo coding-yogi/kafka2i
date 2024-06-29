@@ -240,6 +240,7 @@ async fn run<'a, T: ClientContext + ConsumerContext>(t: &'a mut Terminal<Crosste
                                         }
                                         res
                                     },
+                                    KeyCode::Enter => sender.send(AppEvent::Enter),
                                     KeyCode::Char(':') => sender.send(AppEvent::Edit),
                                     KeyCode::Char(input) => sender.send(AppEvent::Input(input)),
                                     KeyCode::Backspace => sender.send(AppEvent::Backspace),

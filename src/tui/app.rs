@@ -1,13 +1,13 @@
 use std::{char, sync::Arc, thread};
 use crossbeam::channel::Receiver;
-use log::{debug, error, info};
+use log::{error, info};
 use parking_lot::Mutex;
 use rdkafka::{ClientContext, consumer::ConsumerContext};
 use strum::{self, Display};
 use crate::kafka::consumer::Consumer;
 use crate::tui::widgets::Direction;
 
-use super::single_layout::{AppLayout, BROKERS_LIST_NAME, CONSUMER_GROUPS_LIST_NAME, PARTITIONS_LIST_NAME, TOPICS_LIST_NAME};
+use super::{single_layout::{AppLayout, BROKERS_LIST_NAME, CONSUMER_GROUPS_LIST_NAME, PARTITIONS_LIST_NAME, TOPICS_LIST_NAME}, widgets::InputEvent};
 
 // Mode of App
 #[derive(Clone, Debug, Display, Default)]
@@ -35,6 +35,7 @@ pub enum AppEvent {
     Edit,
     Input(char),
     Backspace,
+    Enter,
 }
 
 // App state maintains the state at app level
@@ -106,27 +107,28 @@ where T: ClientContext + ConsumerContext {
                     match self.state.edit_mode {
                         EditMode::Normal => {
                             match event {
-                                AppEvent::Tab => {
-                                    info!("handling tab event");
-                                    self.handle_tab();
-                                },
+                                AppEvent::Tab => self.handle_tab(),
                                 AppEvent::Up => self.handle_list_navigation(Direction::UP),
                                 AppEvent::Down => self.handle_list_navigation(Direction::DOWN),
                                 AppEvent::Esc => {
                                     self.state.should_quit = true;
                                     break;
                                 },
-                                AppEvent::Edit => self.switch_to_edit_mode(),
+                                AppEvent::Edit => self.toogle_edit_mode(EditMode::Editing),
                                 _ => (),
                             }
                         },
                         EditMode::Editing => {
                             match event {
-                                AppEvent::Esc => self.switch_to_normal_mode(),
-                                AppEvent::Input(char) => self.accept_input(char),
-                                AppEvent::Backspace => self.remove_previous_char(),
-                                AppEvent::Left => self.move_cursor(Direction::LEFT),
-                                AppEvent::Right => self.move_cursor(Direction::RIGHT),
+                                AppEvent::Esc => self.toogle_edit_mode(EditMode::Normal),
+                                AppEvent::Input(char) => self.handle_input_event(InputEvent::NewChar(char)),
+                                AppEvent::Backspace => self.handle_input_event(InputEvent::RemovePrevChar),
+                                AppEvent::Left => self.handle_input_event(InputEvent::MoveCursor(Direction::LEFT)),
+                                AppEvent::Right => self.handle_input_event(InputEvent::MoveCursor(Direction::RIGHT)),
+                                AppEvent::Enter => {
+                                    self.handle_input_submission();
+                                    self.toogle_edit_mode(EditMode::Normal);
+                                },
                                 _ => (),
                             }
                         },
@@ -229,7 +231,6 @@ where T: ClientContext + ConsumerContext {
                         match self.kafka_consumer.lock().fetch_watermarks(topic_name, partition_id) {
                             Ok((_, h)) => {
                                 high_watermark = h;
-                                debug!("fetched hwm: {}", h);
                             },
                             Err(err) => error!("error while fetching watermark {}", err),
                         };
@@ -239,7 +240,6 @@ where T: ClientContext + ConsumerContext {
                        match self.kafka_consumer.lock().fetch_offset(topic_name, partition_id) {
                             Ok(o) => {
                                 offset = o;
-                                debug!("fetched offset: {}", o);
                             },
                             Err(err) => error!("error while fetching offsets {}", err),
                        };
@@ -288,7 +288,6 @@ where T: ClientContext + ConsumerContext {
         let item = match selected_item {
             Some(item) => item,
             None => {
-                debug!("No selected item found for list: {}", list_name);
                 return None;
             }
         };
@@ -296,25 +295,29 @@ where T: ClientContext + ConsumerContext {
         return Some(item);
     }
 
-    fn switch_to_edit_mode(&mut self) {
-        self.state.edit_mode = EditMode::Editing;
-        self.layout.lock().footer_layout.enter_edit_mode();
+    fn toogle_edit_mode(&mut self, mode: EditMode) {
+        match mode {
+            EditMode::Normal => {
+                self.layout.lock().footer_layout.handle_input_event(InputEvent::Reset);
+                self.state.edit_mode = EditMode::Normal;
+            },
+            EditMode::Editing => {
+                 self.state.edit_mode = EditMode::Editing;
+                self.layout.lock().footer_layout.handle_input_event(InputEvent::NewChar(':'));
+            }
+        }
+    }   
+
+    fn handle_input_event(&mut self, input_event: InputEvent) {
+       self.layout.lock().footer_layout.handle_input_event(input_event);
     }
 
-    fn switch_to_normal_mode(&mut self) {
-        self.state.edit_mode = EditMode::Normal;
-    }
-
-    fn accept_input(&mut self, c: char) {
-        self.layout.lock().footer_layout.accept_input(c);
-    }
-
-    fn remove_previous_char(&mut self) {
-        self.layout.lock().footer_layout.remove_last_char();
-    }
-
-    fn move_cursor(&mut self, direction: Direction) {
-        self.layout().lock().footer_layout.move_cursor(direction);
+    fn handle_input_submission(&mut self) {
+        let mut layout_guard = self.layout.lock();
+        let footer_layout = &mut layout_guard.footer_layout;
+        let input_value = footer_layout.input_value();
+        footer_layout.handle_input_event(InputEvent::Reset);
+        info!("received input from command: {}",input_value);
     }
 }
 
