@@ -43,6 +43,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let (stats_sender, stats_receiver) = bounded::<Statistics>(5);
         
     // Another consumer to fetch metadata and stats
+    // This consumer will be sent to a thread to refresh metadata at a certain frequency
     log::debug!("creating a new stats consumer to consume metadata and stats");
     let stats_consumer = Consumer::new(&client_config, StatsContext::new(stats_sender)).unwrap();
     

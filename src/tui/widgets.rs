@@ -1,6 +1,5 @@
 use std::char;
 
-use crossterm::event;
 use ratatui::{
     widgets::{List, Block, ListItem, Borders, ListState, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Tabs, Table, Row, TableState}, 
     text::{self, Span, Text}, style::{Style, Modifier, Color, palette::tailwind, Stylize}, 
@@ -504,7 +503,7 @@ impl <'a> UITable<'a> {
         
         let mut rows: Vec<Row> = vec![];
         for data_row in &self.data {
-            rows.push(Row::new(data_row.clone()).height(5));
+            rows.push(Row::new(data_row.clone()).height(10));
         }
         
         self.table = self.table.clone().rows(rows);

@@ -12,7 +12,7 @@ use rdkafka::{
     metadata::Metadata as KafkaMetadata,
     message::BorrowedMessage, 
     Offset, 
-    TopicPartitionList, config::FromClientConfigAndContext, ClientContext, Statistics, statistics::TopicPartition, types::RDKafkaErrorCode,
+    TopicPartitionList, config::FromClientConfigAndContext, ClientContext, Statistics, types::RDKafkaErrorCode,
 };
 
 use crate::kafka::metadata::{Metadata, Topic};
@@ -179,13 +179,13 @@ where T: ClientContext + ConsumerContext
     }
 
     // Seek for a specific topic and partition
-    pub fn seek(&self, topic: &str, partition: i32, offset: Offset) -> Result<()> {
-        self.base_consumer.seek(topic, partition, offset, DEFAULT_TIMEOUT_IN_SECS)?;
+    pub fn seek(&self, topic: &str, partition: i32, offset: i64) -> Result<()> {
+        self.base_consumer.seek(topic, partition, Offset::Offset(offset), DEFAULT_TIMEOUT_IN_SECS)?;
         Ok(())
     }
 
     // Seek for all topics in the partition
-    pub fn seek_for_all_partitions(&self, topic: &Topic, offset: Offset) -> Result<()>{
+    pub fn seek_for_all_partitions(&self, topic: &Topic, offset: i64) -> Result<()>{
         for p in topic.partitions() {
             let _ = self.seek(topic.name(), p.id(), offset)?;
         }
@@ -198,7 +198,7 @@ where T: ClientContext + ConsumerContext
         let tpl = self.base_consumer.offsets_for_timestamp(timestamp, DEFAULT_TIMEOUT_IN_SECS)?;
         for e in tpl.elements() {
             log::debug!("seeking on topic {} & partition {}, offset {} with err {:?}", e.topic(), e.partition(), e.offset().to_raw().unwrap(), e.error());
-            self.seek(e.topic(), e.partition(), e.offset())?;
+            self.seek(e.topic(), e.partition(), e.offset().to_raw().unwrap())?;
         }
 
         Ok(())

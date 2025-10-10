@@ -168,7 +168,8 @@ impl <'a> DetailsLayout<'a> {
     }
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
-        let layout = Layout::vertical([Constraint::Percentage(15), Constraint::Fill(1)]);
+        // The data in the details panel won't display if height is lesser than 13
+        let layout = Layout::vertical([Constraint::Length(13), Constraint::Fill(1)]);
         let [details, message] = layout.areas(area);
         self.details.render(frame, details);
         self.message.render(frame, message);

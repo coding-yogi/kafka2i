@@ -2,7 +2,7 @@ use std::{error::Error, fmt::Display};
 
 use clap::{Parser, ValueEnum};
 use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
-use strum::Display;
+use strum::{Display};
 
 // config params
 const BOOTSTRAP_SERVERS: &str = "bootstrap.servers";
@@ -26,15 +26,19 @@ pub enum LogLevel {
 #[derive(Debug, Display, Clone, ValueEnum)]
 pub enum Protocol {
     #[strum(serialize = "PLAINTEXT")]
+    #[value(name = "PLAINTEXT")]
     PlainText,
 
     #[strum(serialize = "SSL")]
+    #[value(name = "SSL")]
     Ssl,
 
     #[strum(serialize = "SASL_SSL")]
+    #[value(name = "SASL_SSL")]
     SaslSsl,
 
     #[strum(serialize = "SASL_PLAINTEXT")]
+    #[value(name = "SASL_PLAINTEXT")]
     SaslPlainText,
 }
 

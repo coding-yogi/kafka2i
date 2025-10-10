@@ -2,7 +2,7 @@ use std::{char, sync::Arc, thread};
 use crossbeam::channel::Receiver;
 use log::{error, info};
 use parking_lot::Mutex;
-use rdkafka::{ClientContext, consumer::ConsumerContext};
+use rdkafka::{consumer::ConsumerContext, message::{BorrowedMessage, ToBytes}, ClientContext, Message};
 use strum::{self, Display};
 use crate::kafka::consumer::Consumer;
 use crate::tui::widgets::Direction;
@@ -223,13 +223,17 @@ where T: ClientContext + ConsumerContext {
             
             // get high water mark for the topic
             let mut high_watermark: i64 = -999;
+            let mut low_watermark: i64 = -999;
             let mut offset: i64 = -999;
+
+            let mut message: String = "".to_string();
 
             if let Some((topic_name, partition_id)) = get_topic_and_parition_id(&selected_partition) {
                 thread::scope(|s| {
                     s.spawn(|| {
                         match self.kafka_consumer.lock().fetch_watermarks(topic_name, partition_id) {
-                            Ok((_, h)) => {
+                            Ok((l, h)) => {
+                                low_watermark = l;
                                 high_watermark = h;
                             },
                             Err(err) => error!("error while fetching watermark {}", err),
@@ -245,11 +249,22 @@ where T: ClientContext + ConsumerContext {
                        };
                     });
                 });
+
+                // get the message at set offset, by default set to HWM
+                if self.kafka_consumer.lock().seek(topic_name, partition_id, high_watermark).is_ok() {
+                    match self.kafka_consumer.lock().consume() {
+                        Ok(borrowed_message) => if let Some(msg) = borrowed_message {
+                            message = msg.detach().payload().and_then(|b| str::from_utf8(b).ok()).map(|s| s.to_string()).unwrap()
+                        },
+                        Err(err) => error!("consumer error {}", err),
+                    };
+                }
             }
 
-            let partition_details = generate_partition_details(partition.leader(), partition.isr().len(), partition.replicas().len(), high_watermark, offset);
+            let partition_details = generate_partition_details(partition.leader(), partition.isr().len(), partition.replicas().len(), low_watermark, high_watermark, offset);
             self.layout.lock().main_layout.details_layout.details.update_cell_data(PARTITIONS_LIST_NAME, 0, partition_details);
-
+            self.layout.lock().main_layout.details_layout.message.update(message.into());
+            
         }
     }
 
@@ -329,8 +344,8 @@ fn generate_consumer_group_details(state: &str, members: usize) -> String {
     format!("\nState   : {}\nMembers : {}", state, members)
 }
 
-fn generate_partition_details(leader: i32, isr: usize, replicas: usize, hwm: i64, offset: i64) -> String {
-    format!("\nLeader : {}\nISR    : {} / {}\nHWM    : {}\nOffset : {}", leader, isr, replicas, hwm, offset)
+fn generate_partition_details(leader: i32, isr: usize, replicas: usize, lwm: i64, hwm: i64, offset: i64) -> String {
+    format!("\nLeader : {}\nISR    : {} / {}\nLWM    : {}\nHWM    : {}\nOffset : {}", leader, isr, replicas, lwm, hwm, offset)
 }
 
 fn generate_topic_details(parition_count: usize) -> String {
