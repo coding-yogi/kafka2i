@@ -7,10 +7,10 @@ const APP_NAME: &str = "Kafka2i - TUI for Kafka";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const APP_FOOTER: &str = "<TAB> Navigate Lists | <ESC> Quit | <UP/DOWN> Scroll List";
 
-pub const BROKERS_LIST_NAME: &str = "Brokers";
-pub const CONSUMER_GROUPS_LIST_NAME: &str = "Consumer Groups";
-pub const TOPICS_LIST_NAME: &str = "Topics";
-pub const PARTITIONS_LIST_NAME: &str = "Partitions";
+pub const BROKERS_LIST: &str = "Brokers";
+pub const CONSUMER_GROUPS_LIST: &str = "Consumer Groups";
+pub const TOPICS_LIST: &str = "Topics";
+pub const PARTITIONS_LIST: &str = "Partitions";
 
 // Top level application layout
 pub struct AppLayout<'a> {
@@ -61,7 +61,7 @@ impl <'a> HeaderLayout<'a> {
     }
 }
 
-// Tabs Layout
+// Main layout
 pub struct MainLayout<'a> {
     pub lists_layout: ListsLayout<'a>,
     pub details_layout: DetailsLayout<'a>
@@ -85,7 +85,7 @@ impl <'a> MainLayout<'a> {
     }
 }
 
-// Brokers Layout
+// Lists Layout
 pub struct ListsLayout<'a> {
     selected_list: usize,
     pub lists: Vec<UIList<'a>>,
@@ -95,10 +95,10 @@ impl <'a> ListsLayout<'a> {
     pub fn new(metadata: &Metadata) -> ListsLayout<'a> {
         // initlaise all UI Lists
         let mut lists = vec![];
-        lists.push(UIList::new(BROKERS_LIST_NAME.to_string(), metadata.brokers_list()));
-        lists.push(UIList::new(CONSUMER_GROUPS_LIST_NAME.to_string(), metadata.consumer_group_lists()));
-        lists.push(UIList::new(TOPICS_LIST_NAME.to_string(), metadata.topics_list()));
-        lists.push(UIList::new(PARTITIONS_LIST_NAME.to_string(), vec![]));
+        lists.push(UIList::new(BROKERS_LIST.to_string(), metadata.brokers_list()));
+        lists.push(UIList::new(CONSUMER_GROUPS_LIST.to_string(), metadata.consumer_group_lists()));
+        lists.push(UIList::new(TOPICS_LIST.to_string(), metadata.topics_list()));
+        lists.push(UIList::new(PARTITIONS_LIST.to_string(), vec![]));
 
         // select and highlight first list
         let selected_list = 0; 
@@ -149,7 +149,7 @@ impl <'a> ListsLayout<'a> {
     }
 }
 
-// Topics and Partitions Layout
+// Details Layout
 pub struct DetailsLayout<'a> {
     pub details: UITable<'a>,
     pub message: UIParagraphWithScrollbar<'a>
@@ -206,6 +206,10 @@ impl <'a> FooterLayout<'a> {
 
     pub fn input_value(&mut self) -> String {
         self.input.value()
+    }
+
+    pub fn set_value(&mut self, value: &'a str) {
+        self.input.set_value(value);
     }
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {

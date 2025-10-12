@@ -1,13 +1,13 @@
 use std::{char, sync::Arc, time::Duration};
 use crossbeam::channel::Receiver;
-use log::{debug, error, info};
+use log::{debug, error};
 use parking_lot::Mutex;
 use rdkafka::{consumer::ConsumerContext, ClientContext, Message, Offset};
 use strum::{self, Display};
 use crate::kafka::consumer::Consumer;
 use crate::tui::widgets::Direction;
 
-use super::{single_layout::{AppLayout, BROKERS_LIST_NAME, CONSUMER_GROUPS_LIST_NAME, PARTITIONS_LIST_NAME, TOPICS_LIST_NAME}, widgets::InputEvent};
+use super::{single_layout::{AppLayout, BROKERS_LIST, CONSUMER_GROUPS_LIST, PARTITIONS_LIST, TOPICS_LIST}, widgets::InputEvent};
 
 // Mode of App
 #[derive(Clone, Debug, Display, Default)]
@@ -38,6 +38,12 @@ pub enum AppEvent {
     Enter,
 }
 
+// AppCMDs
+const CMD_OFFSET: &str = ":offset!";
+
+// AppErr
+const ERR_INVALID_CMD: &str = "err:InvalidCMD";
+
 // App state maintains the state at app level
 struct AppState {
     // should_quit tells the main loop to terminate the app
@@ -57,7 +63,6 @@ where T: ClientContext + ConsumerContext
 {
     layout: Arc<Mutex<AppLayout<'a>>>,
     state: AppState,
-    //terminal: &'a mut Terminal<CrosstermBackend<Stderr>>,
     kafka_consumer: Arc<Mutex<Consumer<T>>>,
     app_event_recv: Receiver<AppEvent>,
 }
@@ -152,10 +157,10 @@ where T: ClientContext + ConsumerContext {
 
         // handle navigation events
         match selected_list_name.as_str() {
-            BROKERS_LIST_NAME => self.handle_broker_list_navigation(),
-            TOPICS_LIST_NAME => self.handle_topic_list_navigation(),
-            CONSUMER_GROUPS_LIST_NAME => self.handle_cg_list_navigation(),
-            PARTITIONS_LIST_NAME => self.handle_partition_list_navigation(),
+            BROKERS_LIST => self.handle_broker_list_navigation(),
+            TOPICS_LIST => self.handle_topic_list_navigation(),
+            CONSUMER_GROUPS_LIST => self.handle_cg_list_navigation(),
+            PARTITIONS_LIST => self.handle_partition_list_navigation(),
             _ => log::error!("Selected list has an invalid name")
         }
     }
@@ -163,7 +168,7 @@ where T: ClientContext + ConsumerContext {
     // Handles broker list navigation
     // populates TUI with details of the broker selected in the list
     fn handle_broker_list_navigation(&mut self) {
-        if let Some(selected_broker) = self.get_selected_item_for_list(BROKERS_LIST_NAME) {
+        if let Some(selected_broker) = self.get_selected_item_for_list(BROKERS_LIST) {
             let broker = match self.kafka_consumer.lock().metadata().get_broker(&selected_broker) {
                 Some(broker) => broker,
                 None => return
@@ -173,7 +178,7 @@ where T: ClientContext + ConsumerContext {
             let broker_id = broker.id();
             let partition_leader_count = self.kafka_consumer.lock().metadata().no_of_partitions_for_broker(broker_id);
             let broker_details = generate_broker_details(broker_id, "UP", partition_leader_count);
-            self.layout.lock().main_layout.details_layout.details.update_cell_data(BROKERS_LIST_NAME, 0, broker_details);
+            self.layout.lock().main_layout.details_layout.details.update_cell_data(BROKERS_LIST, 0, broker_details);
         }
     }
 
@@ -181,17 +186,17 @@ where T: ClientContext + ConsumerContext {
     // populates the TUI with details of the topic selected
     // populates the parition list with paritions of the selected topic
     fn handle_topic_list_navigation(&mut self) {
-        if let Some(selected_topic) = self.get_selected_item_for_list(TOPICS_LIST_NAME) {
+        if let Some(selected_topic) = self.get_selected_item_for_list(TOPICS_LIST) {
             if let Some(topic) = self.kafka_consumer.lock().metadata().get_topic(&selected_topic) {
                 let topic_details = generate_topic_details(topic.partitions().len());
-                self.layout.lock().main_layout.details_layout.details.update_cell_data(TOPICS_LIST_NAME, 0, topic_details);
+                self.layout.lock().main_layout.details_layout.details.update_cell_data(TOPICS_LIST, 0, topic_details);
 
                 // Fetching all partition names
                 let partitions_names = topic.partition_names();
-                match self.layout.lock().main_layout.lists_layout.get_list_by_name(PARTITIONS_LIST_NAME) {
+                match self.layout.lock().main_layout.lists_layout.get_list_by_name(PARTITIONS_LIST) {
                     Some(list) => list.update(partitions_names),
                     None => {
-                        error!("No list found by name: {}", PARTITIONS_LIST_NAME);
+                        error!("No list found by name: {}", PARTITIONS_LIST);
                         return;
                     }
                 };
@@ -202,7 +207,7 @@ where T: ClientContext + ConsumerContext {
     // Handles partition list navidation
     // populates the TUI with details of the partition selected
     fn handle_partition_list_navigation(&mut self) {
-        if let Some(selected_partition) = self.get_selected_item_for_list(PARTITIONS_LIST_NAME) {
+        if let Some(selected_partition) = self.get_selected_item_for_list(PARTITIONS_LIST) {
             let partition = match self.kafka_consumer.lock().metadata().get_partition(&selected_partition) {
                 Some(partition) => partition,
                 None => {
@@ -212,8 +217,8 @@ where T: ClientContext + ConsumerContext {
             };
 
             // get high water mark for the topic
-            let mut high_watermark: i64 = -999;
-            let mut low_watermark: i64 = -999;
+            let mut high_watermark: i64 = -1;
+            let mut low_watermark: i64 = -1;
             let mut message: String = "".to_string();
 
             if let Some((topic_name, partition_id)) = get_topic_and_parition_id(&selected_partition) {
@@ -277,7 +282,7 @@ where T: ClientContext + ConsumerContext {
 
             // Update UI
             let partition_details = generate_partition_details(partition.leader(), partition.isr().len(), partition.replicas().len(), low_watermark, high_watermark);
-            self.layout.lock().main_layout.details_layout.details.update_cell_data(PARTITIONS_LIST_NAME, 0, partition_details);
+            self.layout.lock().main_layout.details_layout.details.update_cell_data(PARTITIONS_LIST, 0, partition_details);
             self.layout.lock().main_layout.details_layout.message.update(message.into());
         }
     }
@@ -285,10 +290,10 @@ where T: ClientContext + ConsumerContext {
     // Handles consumer group list navigation
     // populates the TUI with the details of selected consumer groups
     fn handle_cg_list_navigation(&mut self) {
-        if let Some(selected_cg) = self.get_selected_item_for_list(CONSUMER_GROUPS_LIST_NAME) {
+        if let Some(selected_cg) = self.get_selected_item_for_list(CONSUMER_GROUPS_LIST) {
             if let Some(cg) = self.kafka_consumer.lock().metadata().get_consumer_group(&selected_cg) {
                 let cg_details = generate_consumer_group_details(cg.state(), cg.members_count());
-                self.layout.lock().main_layout.details_layout.details.update_cell_data(CONSUMER_GROUPS_LIST_NAME, 0, cg_details);
+                self.layout.lock().main_layout.details_layout.details.update_cell_data(CONSUMER_GROUPS_LIST, 0, cg_details);
             }
         }
     }
@@ -306,11 +311,12 @@ where T: ClientContext + ConsumerContext {
     fn toogle_edit_mode(&mut self, mode: EditMode) {
         match mode {
             EditMode::Normal => {
-                self.layout.lock().footer_layout.handle_input_event(InputEvent::Reset);
+                //self.layout.lock().footer_layout.handle_input_event(InputEvent::Reset);
                 self.state.edit_mode = EditMode::Normal;
             },
             EditMode::Editing => {
-                 self.state.edit_mode = EditMode::Editing;
+                self.state.edit_mode = EditMode::Editing;
+                self.layout.lock().footer_layout.handle_input_event(InputEvent::Reset);
                 self.layout.lock().footer_layout.handle_input_event(InputEvent::NewChar(':'));
             }
         }
@@ -318,23 +324,31 @@ where T: ClientContext + ConsumerContext {
 
     // Handle input event
     fn handle_input_event(&mut self, input_event: InputEvent) {
-       self.layout.lock().footer_layout.handle_input_event(input_event);
+        self.layout.lock().footer_layout.handle_input_event(input_event);
     }
 
     // handle input submission
     fn handle_input_submission(&mut self) {
-        let mut layout_guard = self.layout.lock();
-        let footer_layout = &mut layout_guard.footer_layout;
-        let input_value = footer_layout.input_value();
-        footer_layout.handle_input_event(InputEvent::Reset);
-        info!("received input from command: {}",input_value);
+        let input_value = self.layout.lock().footer_layout.input_value();
+        self.layout.lock().footer_layout.handle_input_event(InputEvent::Reset);
+
+       //validate input
+       if !self.valid_input(&input_value) {
+        return;
+       }
+    }
+
+    // validate input
+    fn valid_input(&mut self, input: &str) -> bool {
+        if !input.starts_with(CMD_OFFSET) {
+            debug!("setting {} on footer", ERR_INVALID_CMD);
+            self.layout.lock().footer_layout.set_value(ERR_INVALID_CMD);
+            return false;
+        }
+
+        true
     }
 }
-
-
-
-
-
 
 // Generate broker deatils
 fn generate_broker_details(id: i32, status: &str, partitions: usize) -> String {

@@ -401,6 +401,11 @@ impl <'a> UIInput<'a> {
     pub fn value(&mut self) -> String {
         self.input.value().to_string()
     }
+
+    pub fn set_value(&mut self, value: &'a str) {
+        self.input = self.input.clone().with_value(value.to_string());
+        self.paragraph.update(value.into());
+    }
 }
 
 impl <'a> AppWidget for UIInput<'a> {
