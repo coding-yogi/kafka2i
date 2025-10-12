@@ -1,6 +1,6 @@
 use std::{ time::Duration, fmt::Display, error::Error};
-
 use crossbeam::channel::Sender;
+use log::debug;
 use rdkafka::{
     consumer::{
         base_consumer::BaseConsumer, 
@@ -75,7 +75,7 @@ impl ClientContext for StatsContext {
 }
 
 const DEFAULT_TIMEOUT_IN_SECS: Duration = Duration::from_secs(30);
-const DEFAULT_REFRESH_METADATA_IN_SECS: Duration = Duration::from_secs(60);
+const DEFAULT_REFRESH_METADATA_IN_SECS: Duration = Duration::from_secs(10);
 
 // Wraps Kafka Consumer from the lib
 pub struct Consumer<T>
@@ -113,19 +113,51 @@ where T: ClientContext + ConsumerContext
     // Fetch Metadata
     pub fn fetch_metadata(&self) -> Result<KafkaMetadata> {
         // Metadata
+        debug!("fetching metadata ...");
         let kafka_metadata = self.base_consumer.fetch_metadata(None, self.default_timeout_in_secs)?; 
         Ok(kafka_metadata)
     }
 
     // Update metadata
     pub fn update_metadata(&mut self, metadata: KafkaMetadata, consumer_groups: Vec<ConsumerGroup>) {
-        log::debug!("Updating metadata");
+        log::debug!("Updating metadata ...");
         self.metadata.update(&metadata, consumer_groups);
     }
 
     // Return Metadata
     pub fn metadata(&self) -> &Metadata {
         &self.metadata
+    }
+
+     pub fn fetch_groups(&self) -> Result<Vec<ConsumerGroup>>{
+        debug!("fetching groups ...");
+        let group_list = self.base_consumer.fetch_group_list(None, self.default_timeout_in_secs)?;
+
+        Ok(group_list.groups().iter()
+            .map(|g| g.into())
+            .collect::<Vec<ConsumerGroup>>())
+    }
+
+    pub fn fetch_watermarks(&self, topic: &str, partition: i32) -> Result<(i64, i64)>{
+        debug!("fetching watermarks for topic {}/{}", topic, partition);
+        let watermarks = self.base_consumer.fetch_watermarks(topic, partition, self.default_timeout_in_secs)?;
+        Ok(watermarks)
+    }
+
+    pub fn fetch_offset(&self, topic: &str, partition: i32) -> Result<i64> {
+        debug!("fetching offset for topic {}/{}", topic, partition);
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_partition(topic, partition);
+
+        tpl = self.base_consumer.committed_offsets(tpl, self.default_timeout_in_secs)?;
+        if let Some(tp) = tpl.elements().first() {
+            if let Some(raw_offset) = tp.offset().to_raw() {
+                return Ok(raw_offset);
+            }
+        }
+
+        log::error!("failed to retrieve offset for topic {} & partition {}", topic, partition);
+        Err(KafkaError::OffsetFetch(RDKafkaErrorCode::Fail).into())
     }
 
     // Update stats
@@ -139,8 +171,9 @@ where T: ClientContext + ConsumerContext
     }
 
     // Consume
-    pub fn consume(&self) -> Result<Option<BorrowedMessage>> {
-        if let Some(msg_result) = self.base_consumer.poll(Duration::from_secs(0)) {
+    pub fn consume(&self, timeout: Duration) -> Result<Option<BorrowedMessage>> {
+        debug!("polling for a message");
+        if let Some(msg_result) = self.base_consumer.poll(timeout) {
             let msg = msg_result?;
             return Ok(Some(msg));
         }    
@@ -163,15 +196,16 @@ where T: ClientContext + ConsumerContext
     // Assign
     pub fn assign(&self, topic: &str, partition: i32) -> Result<()>{
         let mut tpl = TopicPartitionList::new();
-        tpl.add_partition(topic, partition);
+        tpl.add_partition_offset(topic, partition, Offset::End)?;
         let _ = self.base_consumer.assign(&tpl)?;
         Ok(())
     }
 
     pub fn assign_all_partitions(&self, topic: &Topic) -> Result<()>{
+        debug!("assigning all partitions of topic {}", topic.name());
         let mut tpl = TopicPartitionList::new();
         for p in topic.partitions() {
-            tpl.add_partition(topic.name(), p.id());
+            tpl.add_partition_offset(topic.name(), p.id(), Offset::End)?;
         }
 
         let _ = self.base_consumer.assign(&tpl)?;
@@ -179,13 +213,17 @@ where T: ClientContext + ConsumerContext
     }
 
     // Seek for a specific topic and partition
-    pub fn seek(&self, topic: &str, partition: i32, offset: i64) -> Result<()> {
-        self.base_consumer.seek(topic, partition, Offset::Offset(offset), DEFAULT_TIMEOUT_IN_SECS)?;
+    pub fn seek(&self, topic: &str, partition: i32, offset: Offset) -> Result<()> {
+        if let Some(o) = offset.to_raw() {
+            debug!("seeking offset {}, on topic {}/{}", o, topic, partition);
+            self.base_consumer.seek(topic, partition, offset, DEFAULT_TIMEOUT_IN_SECS)?;
+        }
+       
         Ok(())
     }
 
     // Seek for all topics in the partition
-    pub fn seek_for_all_partitions(&self, topic: &Topic, offset: i64) -> Result<()>{
+    pub fn seek_for_all_partitions(&self, topic: &Topic, offset: Offset) -> Result<()>{
         for p in topic.partitions() {
             let _ = self.seek(topic.name(), p.id(), offset)?;
         }
@@ -198,38 +236,9 @@ where T: ClientContext + ConsumerContext
         let tpl = self.base_consumer.offsets_for_timestamp(timestamp, DEFAULT_TIMEOUT_IN_SECS)?;
         for e in tpl.elements() {
             log::debug!("seeking on topic {} & partition {}, offset {} with err {:?}", e.topic(), e.partition(), e.offset().to_raw().unwrap(), e.error());
-            self.seek(e.topic(), e.partition(), e.offset().to_raw().unwrap())?;
+            self.seek(e.topic(), e.partition(), e.offset())?;
         }
 
         Ok(())
     }
-
-    pub fn fetch_groups(&self) -> Result<Vec<ConsumerGroup>>{
-        let group_list = self.base_consumer.fetch_group_list(None, self.default_timeout_in_secs)?;
-
-        Ok(group_list.groups().iter()
-            .map(|g| g.into())
-            .collect::<Vec<ConsumerGroup>>())
-    }
-
-    pub fn fetch_watermarks(&self, topic: &str, partition: i32) -> Result<(i64, i64)>{
-        let watermarks = self.base_consumer.fetch_watermarks(topic, partition, self.default_timeout_in_secs)?;
-        Ok(watermarks)
-    }
-
-    pub fn fetch_offset(&self, topic: &str, partition: i32) -> Result<i64> {
-        let mut tpl = TopicPartitionList::new();
-        tpl.add_partition(topic, partition);
-
-        tpl = self.base_consumer.committed_offsets(tpl, self.default_timeout_in_secs)?;
-        if let Some(tp) = tpl.elements().first() {
-            if let Some(raw_offset) = tp.offset().to_raw() {
-                return Ok(raw_offset);
-            }
-        }
-
-        log::error!("failed to retrieve offset for topic {} & partition {}", topic, partition);
-        Err(KafkaError::OffsetFetch(RDKafkaErrorCode::Fail).into())
-    }
 }
-

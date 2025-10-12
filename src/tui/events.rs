@@ -4,11 +4,8 @@ use tokio::{
     task::JoinHandle,
     runtime::Builder,
 };
-
-
 use color_eyre::Result;
 use crossterm::event::{self, KeyEvent};
-
 
 /// Terminal events.
 #[derive(Clone, Copy, Debug)]

@@ -1,8 +1,8 @@
-use std::{char, sync::Arc, thread};
+use std::{char, sync::Arc, time::Duration};
 use crossbeam::channel::Receiver;
-use log::{error, info};
+use log::{debug, error, info};
 use parking_lot::Mutex;
-use rdkafka::{consumer::ConsumerContext, message::{BorrowedMessage, ToBytes}, ClientContext, Message};
+use rdkafka::{consumer::ConsumerContext, ClientContext, Message, Offset};
 use strum::{self, Display};
 use crate::kafka::consumer::Consumer;
 use crate::tui::widgets::Direction;
@@ -198,6 +198,7 @@ where T: ClientContext + ConsumerContext {
             let topic_details = generate_topic_details(topic.partitions().len());
             self.layout.lock().main_layout.details_layout.details.update_cell_data(TOPICS_LIST_NAME, 0, topic_details);
 
+            // Fetching all partition names
             let partitions_names = topic.partition_names();
             match self.layout.lock().main_layout.lists_layout.get_list_by_name(PARTITIONS_LIST_NAME) {
                 Some(list) => list.update(partitions_names),
@@ -220,48 +221,62 @@ where T: ClientContext + ConsumerContext {
                     return;
                 }
             };
-            
+
             // get high water mark for the topic
             let mut high_watermark: i64 = -999;
             let mut low_watermark: i64 = -999;
-            let mut offset: i64 = -999;
-
             let mut message: String = "".to_string();
 
             if let Some((topic_name, partition_id)) = get_topic_and_parition_id(&selected_partition) {
-                thread::scope(|s| {
-                    s.spawn(|| {
-                        match self.kafka_consumer.lock().fetch_watermarks(topic_name, partition_id) {
-                            Ok((l, h)) => {
-                                low_watermark = l;
-                                high_watermark = h;
-                            },
-                            Err(err) => error!("error while fetching watermark {}", err),
-                        };
-                    });
+                // fetch watermarks for the give topic and partition id 
+                match self.kafka_consumer.lock().fetch_watermarks(topic_name, partition_id) {
+                    Ok((l, h)) => {
+                        low_watermark = l;
+                        high_watermark = h;
+                    },
+                    Err(err) => error!("error while fetching watermark on topic {}/{}: {}", topic_name, partition_id, err),
+                };
+                    
+                // Assign current parition to consumer
+                debug!("assigning partition {} for the topic {}", partition_id, topic_name);
+                match self.kafka_consumer.lock().assign(topic_name, partition_id) {
+                    Ok(()) => (),
+                    Err(err) => error!("error while assigning partitions for the topic {}: {}", topic_name, err)
+                }
 
-                    s.spawn(|| {
-                       match self.kafka_consumer.lock().fetch_offset(topic_name, partition_id) {
-                            Ok(o) => {
-                                offset = o;
-                            },
-                            Err(err) => error!("error while fetching offsets {}", err),
-                       };
-                    });
-                });
+                // Poll after assigning paritions
+                // we do not want to capture the message just yet
+                debug!("polling post assignment");
+                match self.kafka_consumer.lock().consume(Duration::from_secs(1)) {
+                    Ok(_) => (),
+                    Err(err) => error!("error while polling post assignment {}", err),
+                }
+                   
+                // get the last message. set the offset based on HWM which is HWM - 1
+                let msg_offset = high_watermark-1;
+                match self.kafka_consumer.lock().seek(topic_name, partition_id, Offset::Offset(msg_offset)) {
+                    Ok(()) => (),
+                    Err(err) => log::error!("consumer error while seeking offset {} on partition {}/{} {}", msg_offset, topic_name, partition_id, err),
+                };
 
-                // get the message at set offset, by default set to HWM
-                if self.kafka_consumer.lock().seek(topic_name, partition_id, high_watermark).is_ok() {
-                    match self.kafka_consumer.lock().consume() {
-                        Ok(borrowed_message) => if let Some(msg) = borrowed_message {
-                            message = msg.detach().payload().and_then(|b| str::from_utf8(b).ok()).map(|s| s.to_string()).unwrap()
-                        },
-                        Err(err) => error!("consumer error {}", err),
-                    };
+                match self.kafka_consumer.lock().consume(Duration::from_secs(1)) {
+                    Ok(borrowed_message) => {
+                        match borrowed_message {
+                            Some(msg) => {
+                                if let Some(payload) = msg.payload_view::<str>().take() {
+                                    message = payload.unwrap().to_owned();
+                                } else {
+                                    message = "No Payload".to_string();
+                                }
+                            },
+                            None => error!("borrowed message is none"),
+                        }
+                    },
+                    Err(err) => error!("error consuming message on topic {}/{} at offset {}: {}", topic_name, partition_id, msg_offset, err),
                 }
             }
 
-            let partition_details = generate_partition_details(partition.leader(), partition.isr().len(), partition.replicas().len(), low_watermark, high_watermark, offset);
+            let partition_details = generate_partition_details(partition.leader(), partition.isr().len(), partition.replicas().len(), low_watermark, high_watermark);
             self.layout.lock().main_layout.details_layout.details.update_cell_data(PARTITIONS_LIST_NAME, 0, partition_details);
             self.layout.lock().main_layout.details_layout.message.update(message.into());
             
@@ -344,8 +359,8 @@ fn generate_consumer_group_details(state: &str, members: usize) -> String {
     format!("\nState   : {}\nMembers : {}", state, members)
 }
 
-fn generate_partition_details(leader: i32, isr: usize, replicas: usize, lwm: i64, hwm: i64, offset: i64) -> String {
-    format!("\nLeader : {}\nISR    : {} / {}\nLWM    : {}\nHWM    : {}\nOffset : {}", leader, isr, replicas, lwm, hwm, offset)
+fn generate_partition_details(leader: i32, isr: usize, replicas: usize, lwm: i64, hwm: i64) -> String {
+    format!("\nLeader : {}\nISR    : {} / {}\nLWM    : {}\nHWM    : {}", leader, isr, replicas, lwm, hwm)
 }
 
 fn generate_topic_details(parition_count: usize) -> String {

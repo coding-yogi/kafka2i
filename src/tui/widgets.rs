@@ -535,4 +535,3 @@ impl <'a> AppWidget for UITable<'a> {
     fn highlight_border(&mut self) {
     }
 }
-

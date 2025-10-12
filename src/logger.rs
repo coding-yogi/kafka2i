@@ -1,12 +1,13 @@
 use flexi_logger::{
-    FileSpec, 
-    Logger, 
-    opt_format
+    opt_format, FileSpec, Logger, LoggerHandle
 };
 
-pub fn initiate() {
-    let logger = Logger::try_with_env().unwrap()
+pub fn initiate() -> LoggerHandle {
+    let _logger = Logger::try_with_env().unwrap()
         .format(opt_format)
-        .log_to_file(FileSpec::default());
-    logger.start().unwrap();
+        .log_to_file(FileSpec::default().directory("logs"))
+        .start().unwrap();
+
+    _logger
 }
+

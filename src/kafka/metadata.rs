@@ -10,7 +10,6 @@ pub struct Metadata {
 }
 
 impl Metadata {
-
     pub fn new() -> Metadata {
         Metadata {
             brokers: vec![],
@@ -301,4 +300,3 @@ impl From<&GroupMemberInfo> for ConsumerGroupMember {
         }
     }
 }
-

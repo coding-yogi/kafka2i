@@ -13,10 +13,12 @@ const STATS_INTERVAL_MS: &str = "statistics.interval.ms";
 const SECURITY_PROTOCOL: &str = "security.protocol";
 const CA_CERT_LOCATION: &str = "ssl.ca.location";
 const ENABLE_CERT_VALIDATION: &str = "enable.ssl.certificate.verification";
+const DEBUG: &str = "debug";
+const AUTO_OFFSET_RESET: &str = "auto.offset.reset";
 
 const DEFAULT_GROUP_ID: &str = "cg.krust";
 
-#[derive(Debug, Clone, ValueEnum)]
+#[derive(Debug, Clone, ValueEnum, PartialEq, Copy)]
 pub enum LogLevel {
     Debug,
     Info,
@@ -113,6 +115,11 @@ impl TryInto<ClientConfig> for Config {
     fn try_into(self) -> Result<ClientConfig, Self::Error> {
         let mut client_config = ClientConfig::new();
         client_config.log_level = self.log_level.into();
+
+        // set debufg level
+        if self.log_level == LogLevel::Debug {
+            client_config.set(DEBUG.to_string(), "all".to_string());
+        }
        
         // bootstrap server
         if self.bootstrap_servers != "" {
@@ -122,11 +129,12 @@ impl TryInto<ClientConfig> for Config {
         }
 
         // group id
-        if self.group_id != "" {
-            client_config.set(GROUP_ID.to_string(), self.group_id);
-        } else {
-            client_config.set(GROUP_ID.to_string(), DEFAULT_GROUP_ID.to_string());
-        }
+        client_config.set(GROUP_ID.to_string(), self.group_id);
+
+        // test config
+        client_config.set("auto.offset.reset", "earliest");
+        client_config.set("enable.auto.commit", "false");
+        client_config.set("enable.auto.offset.store", "false");
         
         // stats interval
         client_config.set(STATS_INTERVAL_MS, "5000");
