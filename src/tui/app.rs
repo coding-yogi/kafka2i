@@ -146,14 +146,12 @@ where T: ClientContext + ConsumerContext {
 
     // Handles the list navigation for the list in focus 
     fn handle_list_navigation(&mut self, direction: Direction){
-        let mut layout_guard = self.layout.lock();
-        let lists_layout = &mut layout_guard.main_layout.lists_layout;
-        lists_layout.handle_navigation(direction);
-        let seleted_list_name = lists_layout.selected_list().name().to_string().clone();
-        drop(layout_guard);
+        // selected list
+        self.layout.lock().main_layout.lists_layout.handle_navigation(direction);
+        let selected_list_name = self.layout.lock().main_layout.lists_layout.selected_list().name().to_string().clone();
 
         // handle navigation events
-        match seleted_list_name.as_str() {
+        match selected_list_name.as_str() {
             BROKERS_LIST_NAME => self.handle_broker_list_navigation(),
             TOPICS_LIST_NAME => self.handle_topic_list_navigation(),
             CONSUMER_GROUPS_LIST_NAME => self.handle_cg_list_navigation(),
@@ -168,10 +166,7 @@ where T: ClientContext + ConsumerContext {
         if let Some(selected_broker) = self.get_selected_item_for_list(BROKERS_LIST_NAME) {
             let broker = match self.kafka_consumer.lock().metadata().get_broker(&selected_broker) {
                 Some(broker) => broker,
-                None => {
-                    error!("Unable to get broker details for broker with name: {}", selected_broker);
-                    return;
-                }
+                None => return
             };
 
             // update broker details
@@ -187,26 +182,20 @@ where T: ClientContext + ConsumerContext {
     // populates the parition list with paritions of the selected topic
     fn handle_topic_list_navigation(&mut self) {
         if let Some(selected_topic) = self.get_selected_item_for_list(TOPICS_LIST_NAME) {
-            let topic = match self.kafka_consumer.lock().metadata().get_topic(&selected_topic) {
-                Some(topic) => topic,
-                None => {
-                    error!("Unable to get topic details for topic with name: {}", selected_topic);
-                    return;
-                }
-            };
+            if let Some(topic) = self.kafka_consumer.lock().metadata().get_topic(&selected_topic) {
+                let topic_details = generate_topic_details(topic.partitions().len());
+                self.layout.lock().main_layout.details_layout.details.update_cell_data(TOPICS_LIST_NAME, 0, topic_details);
 
-            let topic_details = generate_topic_details(topic.partitions().len());
-            self.layout.lock().main_layout.details_layout.details.update_cell_data(TOPICS_LIST_NAME, 0, topic_details);
-
-            // Fetching all partition names
-            let partitions_names = topic.partition_names();
-            match self.layout.lock().main_layout.lists_layout.get_list_by_name(PARTITIONS_LIST_NAME) {
-                Some(list) => list.update(partitions_names),
-                None => {
-                    error!("No list found by name: {}", PARTITIONS_LIST_NAME);
-                    return;
-                }
-            };
+                // Fetching all partition names
+                let partitions_names = topic.partition_names();
+                match self.layout.lock().main_layout.lists_layout.get_list_by_name(PARTITIONS_LIST_NAME) {
+                    Some(list) => list.update(partitions_names),
+                    None => {
+                        error!("No list found by name: {}", PARTITIONS_LIST_NAME);
+                        return;
+                    }
+                };
+            }
         }
     }
 
@@ -241,7 +230,10 @@ where T: ClientContext + ConsumerContext {
                 debug!("assigning partition {} for the topic {}", partition_id, topic_name);
                 match self.kafka_consumer.lock().assign(topic_name, partition_id) {
                     Ok(()) => (),
-                    Err(err) => error!("error while assigning partitions for the topic {}: {}", topic_name, err)
+                    Err(err) => {
+                        error!("error while assigning partitions for the topic {}: {}", topic_name, err);
+                        return;
+                    }
                 }
 
                 // Poll after assigning paritions
@@ -249,16 +241,23 @@ where T: ClientContext + ConsumerContext {
                 debug!("polling post assignment");
                 match self.kafka_consumer.lock().consume(Duration::from_secs(1)) {
                     Ok(_) => (),
-                    Err(err) => error!("error while polling post assignment {}", err),
+                    Err(err) => {
+                        error!("error while polling post assignment {}", err);
+                        return;
+                    }
                 }
                    
                 // get the last message. set the offset based on HWM which is HWM - 1
                 let msg_offset = high_watermark-1;
                 match self.kafka_consumer.lock().seek(topic_name, partition_id, Offset::Offset(msg_offset)) {
                     Ok(()) => (),
-                    Err(err) => log::error!("consumer error while seeking offset {} on partition {}/{} {}", msg_offset, topic_name, partition_id, err),
-                };
+                    Err(err) => {
+                        error!("consumer error while seeking offset {} on partition {}/{} {}", msg_offset, topic_name, partition_id, err);
+                        return;
+                    }
+                }
 
+                // consumer the message from the seeked offset
                 match self.kafka_consumer.lock().consume(Duration::from_secs(1)) {
                     Ok(borrowed_message) => {
                         match borrowed_message {
@@ -276,10 +275,10 @@ where T: ClientContext + ConsumerContext {
                 }
             }
 
+            // Update UI
             let partition_details = generate_partition_details(partition.leader(), partition.isr().len(), partition.replicas().len(), low_watermark, high_watermark);
             self.layout.lock().main_layout.details_layout.details.update_cell_data(PARTITIONS_LIST_NAME, 0, partition_details);
             self.layout.lock().main_layout.details_layout.message.update(message.into());
-            
         }
     }
 
@@ -287,44 +286,23 @@ where T: ClientContext + ConsumerContext {
     // populates the TUI with the details of selected consumer groups
     fn handle_cg_list_navigation(&mut self) {
         if let Some(selected_cg) = self.get_selected_item_for_list(CONSUMER_GROUPS_LIST_NAME) {
-            match self.kafka_consumer.lock().metadata().get_consumer_group(&selected_cg) {
-                Some(cg) => {
-                    let cg_details = generate_consumer_group_details(cg.state(), cg.members_count());
-                    self.layout.lock().main_layout.details_layout.details.update_cell_data(CONSUMER_GROUPS_LIST_NAME, 0, cg_details);
-                },
-                None => {
-                    error!("Unable to get details for cg with name {}", selected_cg);
-                    return;
-                }
-            };
+            if let Some(cg) = self.kafka_consumer.lock().metadata().get_consumer_group(&selected_cg) {
+                let cg_details = generate_consumer_group_details(cg.state(), cg.members_count());
+                self.layout.lock().main_layout.details_layout.details.update_cell_data(CONSUMER_GROUPS_LIST_NAME, 0, cg_details);
+            }
         }
     }
 
     // Gets the selected item for the list
     fn get_selected_item_for_list(&mut self, list_name: &str) -> Option<String> {
-        let mut layout_guard = self.layout.lock();
-        let lists_layout = &mut layout_guard.main_layout.lists_layout;
+        if let Some(list) = self.layout.lock().main_layout.lists_layout.get_list_by_name(list_name) {
+            return list.selected_item()
+        }
 
-        let selected_item = match lists_layout.get_list_by_name(list_name) {
-            Some(list) => list.selected_item(),
-            None => {
-                error!("No list found by name: {}", list_name);
-                return None;
-            }
-        };
-
-        drop(layout_guard);
-
-        let item = match selected_item {
-            Some(item) => item,
-            None => {
-                return None;
-            }
-        };
-
-        return Some(item);
+        return None;
     }
 
+    // Toogle the edit mode to accept input
     fn toogle_edit_mode(&mut self, mode: EditMode) {
         match mode {
             EditMode::Normal => {
@@ -338,10 +316,12 @@ where T: ClientContext + ConsumerContext {
         }
     }   
 
+    // Handle input event
     fn handle_input_event(&mut self, input_event: InputEvent) {
        self.layout.lock().footer_layout.handle_input_event(input_event);
     }
 
+    // handle input submission
     fn handle_input_submission(&mut self) {
         let mut layout_guard = self.layout.lock();
         let footer_layout = &mut layout_guard.footer_layout;
@@ -351,22 +331,32 @@ where T: ClientContext + ConsumerContext {
     }
 }
 
+
+
+
+
+
+// Generate broker deatils
 fn generate_broker_details(id: i32, status: &str, partitions: usize) -> String {
     format!("\nID         : {}\nStatus     : {}\nPartitions : {}", id, status, partitions)
 }
 
+// Generate consumer group details
 fn generate_consumer_group_details(state: &str, members: usize) -> String {
     format!("\nState   : {}\nMembers : {}", state, members)
 }
 
+// Generate parition details
 fn generate_partition_details(leader: i32, isr: usize, replicas: usize, lwm: i64, hwm: i64) -> String {
     format!("\nLeader : {}\nISR    : {} / {}\nLWM    : {}\nHWM    : {}", leader, isr, replicas, lwm, hwm)
 }
 
+// Generate topic details
 fn generate_topic_details(parition_count: usize) -> String {
     format!("\nParitions: {}", parition_count)
 }
 
+// Get Topic Name and the partition ids from partition name
 fn get_topic_and_parition_id(partition_name: &str) -> Option<(&str, i32)> {
     let topic_and_partition = partition_name.split("/").collect::<Vec<&str>>();
     if topic_and_partition.len() != 2 {
