@@ -2,17 +2,10 @@ use std::{ time::Duration, fmt::Display, error::Error};
 use crossbeam::channel::Sender;
 use log::debug;
 use rdkafka::{
-    consumer::{
+    config::FromClientConfigAndContext, consumer::{
         base_consumer::BaseConsumer, 
         Consumer as KafkaConsumer, ConsumerContext, 
-    }, 
-    ClientConfig, 
-    util::Timeout, 
-    error::KafkaError, 
-    metadata::Metadata as KafkaMetadata,
-    message::BorrowedMessage, 
-    Offset, 
-    TopicPartitionList, config::FromClientConfigAndContext, ClientContext, Statistics, types::RDKafkaErrorCode,
+    }, error::KafkaError, metadata::Metadata as KafkaMetadata, types::RDKafkaErrorCode, util::Timeout, ClientConfig, ClientContext, Message, Offset, Statistics, TopicPartitionList
 };
 
 use crate::kafka::metadata::{Metadata, Topic};
@@ -171,12 +164,16 @@ where T: ClientContext + ConsumerContext
     }
 
     // Consume
-    pub fn consume(&self, timeout: Duration) -> Result<Option<BorrowedMessage>> {
+    pub fn consume(&self, timeout: Duration) -> Result<Option<String>> {
         debug!("polling for a message");
         if let Some(msg_result) = self.base_consumer.poll(timeout) {
             let msg = msg_result?;
-            return Ok(Some(msg));
-        }    
+            if let Some(payload) = msg.payload_view::<str>().take() {
+                return Ok(Some(payload.unwrap().to_owned()));
+            } else {
+                return Ok(Some("No Payload".to_string()));
+            }
+        }
 
         Ok(None)
     }
@@ -213,17 +210,16 @@ where T: ClientContext + ConsumerContext
     }
 
     // Seek for a specific topic and partition
-    pub fn seek(&self, topic: &str, partition: i32, offset: Offset) -> Result<()> {
-        if let Some(o) = offset.to_raw() {
-            debug!("seeking offset {}, on topic {}/{}", o, topic, partition);
-            self.base_consumer.seek(topic, partition, offset, DEFAULT_TIMEOUT_IN_SECS)?;
-        }
+    pub fn seek(&self, topic: &str, partition: i32, offset: i64) -> Result<()> {
+        debug!("seeking offset {}, on topic {}/{}", offset, topic, partition);
+        self.base_consumer.seek(topic, partition, Offset::Offset(offset), DEFAULT_TIMEOUT_IN_SECS)?;
+        
        
         Ok(())
     }
 
     // Seek for all topics in the partition
-    pub fn seek_for_all_partitions(&self, topic: &Topic, offset: Offset) -> Result<()>{
+    pub fn seek_for_all_partitions(&self, topic: &Topic, offset: i64) -> Result<()>{
         for p in topic.partitions() {
             let _ = self.seek(topic.name(), p.id(), offset)?;
         }
@@ -236,7 +232,7 @@ where T: ClientContext + ConsumerContext
         let tpl = self.base_consumer.offsets_for_timestamp(timestamp, DEFAULT_TIMEOUT_IN_SECS)?;
         for e in tpl.elements() {
             log::debug!("seeking on topic {} & partition {}, offset {} with err {:?}", e.topic(), e.partition(), e.offset().to_raw().unwrap(), e.error());
-            self.seek(e.topic(), e.partition(), e.offset())?;
+            self.seek(e.topic(), e.partition(), e.offset().to_raw().unwrap())?;
         }
 
         Ok(())

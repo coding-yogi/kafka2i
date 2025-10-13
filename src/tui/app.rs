@@ -2,9 +2,9 @@ use std::{char, sync::Arc, time::Duration};
 use crossbeam::channel::Receiver;
 use log::{debug, error};
 use parking_lot::Mutex;
-use rdkafka::{consumer::ConsumerContext, ClientContext, Message, Offset};
+use rdkafka::{consumer::ConsumerContext, ClientContext};
 use strum::{self, Display};
-use crate::kafka::consumer::Consumer;
+use crate::kafka::consumer::{Consumer, ConsumerError};
 use crate::tui::widgets::Direction;
 
 use super::{single_layout::{AppLayout, BROKERS_LIST, CONSUMER_GROUPS_LIST, PARTITIONS_LIST, TOPICS_LIST}, widgets::InputEvent};
@@ -96,7 +96,7 @@ where T: ClientContext + ConsumerContext
     }
 }
 
-// This impl block defines all the methods related to state of the app
+// This impl block for the app event handler
 impl <T> App<'_, T>
 where T: ClientContext + ConsumerContext {
     // should_quit is defined at app level so its easier to call from main method
@@ -119,20 +119,20 @@ where T: ClientContext + ConsumerContext {
                                     self.state.should_quit = true;
                                     break;
                                 },
-                                AppEvent::Edit => self.toogle_edit_mode(EditMode::Editing),
+                                AppEvent::Edit => self.toggle_edit_mode(EditMode::Editing),
                                 _ => (),
                             }
                         },
                         EditMode::Editing => {
                             match event {
-                                AppEvent::Esc => self.toogle_edit_mode(EditMode::Normal),
+                                AppEvent::Esc => self.toggle_edit_mode(EditMode::Normal),
                                 AppEvent::Input(char) => self.handle_input_event(InputEvent::NewChar(char)),
                                 AppEvent::Backspace => self.handle_input_event(InputEvent::RemovePrevChar),
                                 AppEvent::Left => self.handle_input_event(InputEvent::MoveCursor(Direction::LEFT)),
                                 AppEvent::Right => self.handle_input_event(InputEvent::MoveCursor(Direction::RIGHT)),
                                 AppEvent::Enter => {
                                     self.handle_input_submission();
-                                    self.toogle_edit_mode(EditMode::Normal);
+                                    self.toggle_edit_mode(EditMode::Normal);
                                 },
                                 _ => (),
                             }
@@ -143,6 +143,12 @@ where T: ClientContext + ConsumerContext {
             }
         }
     }
+}
+
+
+// Implementation block to handle all list navigations
+impl <T> App<'_, T>
+where T: ClientContext + ConsumerContext {
 
     // Handles tab event which switches between the available tabs
     fn handle_tab(&mut self) {
@@ -220,6 +226,7 @@ where T: ClientContext + ConsumerContext {
             let mut high_watermark: i64 = -1;
             let mut low_watermark: i64 = -1;
             let mut message: String = "".to_string();
+            let mut message_offset: i64 = -1;
 
             if let Some((topic_name, partition_id)) = get_topic_and_parition_id(&selected_partition) {
                 // fetch watermarks for the give topic and partition id 
@@ -233,57 +240,26 @@ where T: ClientContext + ConsumerContext {
                     
                 // Assign current parition to consumer
                 debug!("assigning partition {} for the topic {}", partition_id, topic_name);
-                match self.kafka_consumer.lock().assign(topic_name, partition_id) {
-                    Ok(()) => (),
-                    Err(err) => {
-                        error!("error while assigning partitions for the topic {}: {}", topic_name, err);
-                        return;
-                    }
-                }
-
-                // Poll after assigning paritions
-                // we do not want to capture the message just yet
-                debug!("polling post assignment");
-                match self.kafka_consumer.lock().consume(Duration::from_secs(1)) {
-                    Ok(_) => (),
-                    Err(err) => {
-                        error!("error while polling post assignment {}", err);
-                        return;
-                    }
+                if let Err(err) = self.assign_and_poll(topic_name, partition_id) {
+                    error!("error while assigning and polling for partition {}/{}: {}", topic_name, partition_id, err);
+                    return;
                 }
                    
                 // get the last message. set the offset based on HWM which is HWM - 1
-                let msg_offset = high_watermark-1;
-                match self.kafka_consumer.lock().seek(topic_name, partition_id, Offset::Offset(msg_offset)) {
-                    Ok(()) => (),
-                    Err(err) => {
-                        error!("consumer error while seeking offset {} on partition {}/{} {}", msg_offset, topic_name, partition_id, err);
-                        return;
-                    }
-                }
+                message_offset = high_watermark-1;
 
-                // consumer the message from the seeked offset
-                match self.kafka_consumer.lock().consume(Duration::from_secs(1)) {
-                    Ok(borrowed_message) => {
-                        match borrowed_message {
-                            Some(msg) => {
-                                if let Some(payload) = msg.payload_view::<str>().take() {
-                                    message = payload.unwrap().to_owned();
-                                } else {
-                                    message = "No Payload".to_string();
-                                }
-                            },
-                            None => error!("borrowed message is none"),
-                        }
-                    },
-                    Err(err) => error!("error consuming message on topic {}/{} at offset {}: {}", topic_name, partition_id, msg_offset, err),
+                // seek and consume the message
+                if let Some(msg) = self.seek_and_consume(topic_name, partition_id, message_offset) {
+                    message = msg;
+                } else {
+                    return;
                 }
             }
-
+                
             // Update UI
             let partition_details = generate_partition_details(partition.leader(), partition.isr().len(), partition.replicas().len(), low_watermark, high_watermark);
             self.layout.lock().main_layout.details_layout.details.update_cell_data(PARTITIONS_LIST, 0, partition_details);
-            self.layout.lock().main_layout.details_layout.message.update(message.into());
+            self.layout.lock().main_layout.details_layout.message.update_with_title(format!("Message ({})", message_offset), message.into());
         }
     }
 
@@ -297,6 +273,56 @@ where T: ClientContext + ConsumerContext {
             }
         }
     }
+}
+
+
+// Implementation block for all the helper methods
+impl <T> App<'_, T>
+where T: ClientContext + ConsumerContext {
+    // assign and poll the consumer for the given topic, partition and offset
+    fn assign_and_poll(&mut self, topic_name: &str, partition_id: i32) -> Result<(), ConsumerError> {
+        // Assign current parition to consumer
+        match self.kafka_consumer.lock().assign(topic_name, partition_id) {
+            Ok(()) => (),
+            Err(err) => {
+                error!("error while assigning partitions for the topic {}: {}", topic_name, err);
+                return Err(err);
+            }
+        }
+
+        // Poll after assigning paritions
+        // we do not want to capture the message just yet
+        match self.kafka_consumer.lock().consume(Duration::from_secs(1)) {
+            Ok(_) => (),
+            Err(err) => {
+                error!("error while polling post assignment {}", err);
+                return Err(err);
+            }
+        }
+
+        Ok(())
+    }
+
+    // Seek and consume message from the given offset
+    fn seek_and_consume(&mut self, topic_name: &str, partition_id: i32, offset: i64) -> Option<String>{
+
+        match self.kafka_consumer.lock().seek(topic_name, partition_id, offset) {
+            Ok(()) => (),
+            Err(err) => {
+                error!("consumer error while seeking offset {} on partition {}/{} {}", offset, topic_name, partition_id, err);
+                return None;
+            }
+        }
+
+        // consumer the message from the seeked offset
+        match self.kafka_consumer.lock().consume(Duration::from_secs(1)) {
+            Ok(msg) => msg,
+            Err(err) => {
+                error!("error consuming message on topic {}/{} at offset {}: {}", topic_name, partition_id, offset, err);
+                None
+            }
+        }
+    }
 
     // Gets the selected item for the list
     fn get_selected_item_for_list(&mut self, list_name: &str) -> Option<String> {
@@ -306,9 +332,14 @@ where T: ClientContext + ConsumerContext {
 
         return None;
     }
+}
 
-    // Toogle the edit mode to accept input
-    fn toogle_edit_mode(&mut self, mode: EditMode) {
+// Implementation block to handle all input events
+impl <T> App<'_, T>
+where T: ClientContext + ConsumerContext {
+
+    // Toggle the edit mode to accept input
+    fn toggle_edit_mode(&mut self, mode: EditMode) {
         match mode {
             EditMode::Normal => {
                 //self.layout.lock().footer_layout.handle_input_event(InputEvent::Reset);
@@ -332,10 +363,10 @@ where T: ClientContext + ConsumerContext {
         let input_value = self.layout.lock().footer_layout.input_value();
         self.layout.lock().footer_layout.handle_input_event(InputEvent::Reset);
 
-       //validate input
-       if !self.valid_input(&input_value) {
-        return;
-       }
+        //validate input
+        if !self.valid_input(&input_value) {
+            return;
+        }
     }
 
     // validate input

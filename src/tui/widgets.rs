@@ -265,6 +265,12 @@ impl <'a> UIParagraphWithScrollbar<'a> {
         self.scrollbar.update(content_length);
     }
 
+    pub fn update_with_title(&mut self, title: String, text: Text<'a>) {
+        let content_length = text.lines.len();
+        self.paragraph.update_with_name(title,text); 
+        self.scrollbar.update(content_length);
+    }
+
     pub fn handle_down(&mut self) {
         self.scrollbar.handle_down();
         self.paragraph.scroll((self.scrollbar.scroll_state,0));
@@ -309,7 +315,11 @@ impl <'a> UIParagraph<'a> {
     }
 
     pub fn update(&mut self, text: Text<'a>) {
-        self.paragraph = Paragraph::new(text).block(create_block(NORMAL_COLOR, self.name.clone(), true))
+        self.update_with_name(self.name.clone(), text);
+    }
+
+    pub fn update_with_name(&mut self, name: String, text: Text<'a>) {
+        self.paragraph = Paragraph::new(text).block(create_block(NORMAL_COLOR, name, true))
     }
 
     pub fn scroll(&mut self, offset: (u16, u16)) {

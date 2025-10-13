@@ -6,7 +6,7 @@ use crossterm::event::{KeyEventKind, KeyCode};
 use kafka::consumer::StatsContext;
 use parking_lot::Mutex;
 use rdkafka::{consumer::ConsumerContext, ClientConfig, ClientContext, Statistics};
-use crossterm::{terminal::{enable_raw_mode, EnterAlternateScreen, disable_raw_mode, LeaveAlternateScreen}, execute};
+use crossterm::{terminal::{enable_raw_mode, EnterAlternateScreen, disable_raw_mode, LeaveAlternateScreen}, execute, event::DisableMouseCapture};
 use ratatui::{prelude::CrosstermBackend, Terminal};
 use tokio::time;
 use tui::{app::App, app::AppEvent, events};
@@ -99,7 +99,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 fn setup() -> Result<(), Box<dyn Error>>{
     log::debug!("setting up TUI");
     enable_raw_mode()?;
-    execute!(std::io::stderr(), EnterAlternateScreen)?;
+    execute!(std::io::stderr(), EnterAlternateScreen, DisableMouseCapture)?;
     Ok(())
 }
 
