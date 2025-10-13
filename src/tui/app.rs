@@ -1,11 +1,11 @@
 use std::str::FromStr;
 use std::{char, sync::Arc, time::Duration};
 use crossbeam::channel::Receiver;
-use log::{debug, error};
+use log::{debug, error, info};
 use parking_lot::Mutex;
 use rdkafka::{consumer::ConsumerContext, ClientContext};
 use strum::{self, Display, EnumString};
-use crate::kafka::consumer::{Consumer, ConsumerError};
+use crate::kafka::consumer::{Consumer, ConsumerError, KafkaMessage};
 use crate::tui::widgets::Direction;
 
 use super::{single_layout::{AppLayout, BROKERS_LIST, CONSUMER_GROUPS_LIST, PARTITIONS_LIST, TOPICS_LIST}, widgets::InputEvent};
@@ -236,6 +236,7 @@ where T: ClientContext + ConsumerContext {
             let mut high_watermark: i64 = -1;
             let mut low_watermark: i64 = -1;
             let mut message: String = "".to_string();
+            let mut message_timestamp: String = "".to_string();
             let mut message_offset: i64 = -1; 
 
             if let Some((topic_name, partition_id)) = get_topic_and_parition_id(&selected_partition) {
@@ -251,6 +252,10 @@ where T: ClientContext + ConsumerContext {
                     }
                 };
 
+                // Update UI
+                let partition_details = generate_partition_details(partition.leader(), partition.isr().len(), partition.replicas().len(), low_watermark, high_watermark);
+                self.layout.lock().main_layout.details_layout.details.update_cell_data(PARTITIONS_LIST, 0, partition_details);
+
                 // Assign current partition to consumer
                 if let Err(err) = self.assign_and_poll(topic_name, partition_id) {
                     error!("error while assigning and polling for partition {}/{}: {}", topic_name, partition_id, err);
@@ -261,16 +266,16 @@ where T: ClientContext + ConsumerContext {
 
                 // seek high watermark -1 by default and consume the message
                 if let Some(msg) = self.seek_and_consume(topic_name, partition_id, message_offset) {
-                    message = msg;
+                    message = pretty_print_json(&msg.payload_or_default());
+                    message_timestamp = msg.timestamp_or_default();
                 } else {
                     return;
                 }
             }
-                
-            // Update UI
-            let partition_details = generate_partition_details(partition.leader(), partition.isr().len(), partition.replicas().len(), low_watermark, high_watermark);
-            self.layout.lock().main_layout.details_layout.details.update_cell_data(PARTITIONS_LIST, 0, partition_details);
-            self.layout.lock().main_layout.details_layout.message.update_with_title(format!("Message ({})", message_offset), message.into());
+
+            // update message
+            info!("message fetched at offset {} of partition {}: {}", message_offset, selected_partition, message);
+            self.layout.lock().main_layout.details_layout.message.update_with_title(format!("Message offset:{} ts:{}", message_offset, message_timestamp), message.into());
         }
     }
 
@@ -315,7 +320,7 @@ where T: ClientContext + ConsumerContext {
     }
 
     // Seek and consume message from the given offset
-    fn seek_and_consume(&mut self, topic_name: &str, partition_id: i32, offset: i64) -> Option<String>{
+    fn seek_and_consume(&mut self, topic_name: &str, partition_id: i32, offset: i64) -> Option<KafkaMessage>{
         match self.kafka_consumer.lock().seek(topic_name, partition_id, offset) {
             Ok(()) => (),
             Err(err) => {
@@ -326,7 +331,7 @@ where T: ClientContext + ConsumerContext {
 
         // consumer the message from the seeked offset
         match self.kafka_consumer.lock().consume(Duration::from_secs(5)) {
-            Ok(msg) => msg,
+            Ok(msg) =>  msg,
             Err(err) => {
                 error!("error consuming message on topic {}/{} at offset {}: {}", topic_name, partition_id, offset, err);
                 None
@@ -439,6 +444,7 @@ where T: ClientContext + ConsumerContext {
         let mut high_watermark: i64 = -1;
         let mut low_watermark: i64 = -1;
         let mut message: String = "".to_string();
+        let mut message_timestamp: String = "".to_string();
 
         if let Some((topic_name, partition_id)) = get_topic_and_parition_id(&selected_partition) {
             // fetch watermarks for the give topic and partition id 
@@ -452,6 +458,10 @@ where T: ClientContext + ConsumerContext {
                     return;
                 }
             };
+
+            // Update UI
+            let partition_details = generate_partition_details(partition.leader(), partition.isr().len(), partition.replicas().len(), low_watermark, high_watermark);
+            self.layout.lock().main_layout.details_layout.details.update_cell_data(PARTITIONS_LIST, 0, partition_details);
 
             // check is offset is lesser than high watermark and greater than low watermark
             if offset < low_watermark || offset > high_watermark {
@@ -468,18 +478,16 @@ where T: ClientContext + ConsumerContext {
 
             // seek high watermark -1 by default and consume the message
             if let Some(msg) = self.seek_and_consume(topic_name, partition_id, offset) {
-                message = msg;
+                message = pretty_print_json(&msg.payload_or_default());
+                message_timestamp = msg.timestamp_or_default();
             } else {
                 error!("no message was returned");
                 return;
             }
 
-            debug!("fetched message at offset {} on topic {}/{}", offset, topic_name, partition_id);
-                
-            // Update UI
-            let partition_details = generate_partition_details(partition.leader(), partition.isr().len(), partition.replicas().len(), low_watermark, high_watermark);
-            self.layout.lock().main_layout.details_layout.details.update_cell_data(PARTITIONS_LIST, 0, partition_details);
-            self.layout.lock().main_layout.details_layout.message.update_with_title(format!("Message ({})", offset), message.into());
+            // update message
+             info!("message fetched at offset {} of partition {}: {}", offset, selected_partition, message);
+            self.layout.lock().main_layout.details_layout.message.update_with_title(format!("Message offset:{} ts:{}", offset, message_timestamp), message.into());
         }
 
     }
@@ -522,4 +530,17 @@ fn get_topic_and_parition_id(partition_name: &str) -> Option<(&str, i32)> {
     };
 
     Some((topic_and_partition[0], paritition_id))
+}
+
+// Pretty print json
+fn pretty_print_json(json_str: &str) -> String {
+    match serde_json::from_str::<serde_json::Value>(json_str) {
+        Ok(json) => {
+            match serde_json::to_string_pretty(&json) {
+                Ok(pretty_json) => pretty_json,
+                Err(_) => json_str.to_string()
+            }
+        },
+        Err(_) => json_str.to_string()
+    }
 }

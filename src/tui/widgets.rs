@@ -1,9 +1,7 @@
 use std::char;
 
 use ratatui::{
-    widgets::{List, Block, ListItem, Borders, ListState, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Tabs, Table, Row, TableState}, 
-    text::{self, Span, Text}, style::{Style, Modifier, Color, palette::tailwind, Stylize}, 
-    prelude::Rect, Frame, symbols, layout::Constraint,
+    layout::Constraint, prelude::Rect, style::{palette::tailwind, Color, Modifier, Style, Stylize}, symbols, text::{self, Span, Text}, widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table, TableState, Tabs, Wrap}, Frame
 };
 use tui_input::{Input, InputRequest};
 
@@ -217,6 +215,7 @@ fn get_list_items(items: Vec<String>) -> Vec<ListItem<'static>> {
     items
         .into_iter()
         .map(|i| ListItem::new(vec![text::Line::from(Span::raw(i))]))
+        //.map(|i| ListItem::new(Paragraph::new(i).wrap(Wrap { trim: false })))
         .collect::<Vec<ListItem>>()
 }
 
@@ -309,7 +308,8 @@ impl <'a> UIParagraph<'a> {
     pub fn new(name: String, text: Text<'a>) -> UIParagraph<'a> {
         UIParagraph {
             name: name.clone(),
-            paragraph: Paragraph::new(text).block(create_block(NORMAL_COLOR, name, true)),
+            paragraph: Paragraph::new(text)
+            .block(create_block(NORMAL_COLOR, name, true)),
             area: Rect::default()
         }
     }
@@ -319,7 +319,9 @@ impl <'a> UIParagraph<'a> {
     }
 
     pub fn update_with_name(&mut self, name: String, text: Text<'a>) {
-        self.paragraph = Paragraph::new(text).block(create_block(NORMAL_COLOR, name, true))
+        self.paragraph = Paragraph::new(text)
+            .wrap(Wrap { trim: false })
+            .block(create_block(NORMAL_COLOR, name, true))
     }
 
     pub fn scroll(&mut self, offset: (u16, u16)) {

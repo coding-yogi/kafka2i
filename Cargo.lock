@@ -794,6 +794,7 @@ dependencies = [
  "parking_lot",
  "ratatui",
  "rdkafka",
+ "serde_json",
  "strum 0.27.2",
  "tokio",
  "tokio-util",

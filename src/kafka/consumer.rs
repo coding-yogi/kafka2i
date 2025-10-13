@@ -164,15 +164,11 @@ where T: ClientContext + ConsumerContext
     }
 
     // Consume
-    pub fn consume(&self, timeout: Duration) -> Result<Option<String>> {
+    pub fn consume(&self, timeout: Duration) -> Result<Option<KafkaMessage>> {
         debug!("polling for a message");
         if let Some(msg_result) = self.base_consumer.poll(timeout) {
             let msg = msg_result?;
-            if let Some(payload) = msg.payload_view::<str>().take() {
-                return Ok(Some(payload.unwrap().to_owned()));
-            } else {
-                return Ok(Some("No Payload".to_string()));
-            }
+            return Ok(Some(KafkaMessage::new(&msg)));
         }
 
         Ok(None)
@@ -237,4 +233,61 @@ where T: ClientContext + ConsumerContext
 
         Ok(())
     }
+}
+
+pub struct KafkaMessage {
+    pub topic: String,
+    pub partition: i32,
+    pub offset: i64,
+    pub key: Option<String>,
+    pub payload: Option<String>,
+    pub timestamp: Option<i64>,
+}
+
+impl KafkaMessage {
+    pub fn new<M: Message>(msg: &M) -> KafkaMessage {
+        KafkaMessage {
+            topic: msg.topic().to_string(),
+            partition: msg.partition(),
+            offset: msg.offset(),
+            key: match msg.key_view::<str>() {
+                Some(k) => {
+                    match k {
+                        Ok(kk) => Some(kk.to_string()),
+                        Err(_) => None,
+                    }
+                },
+                None => None,
+            },
+            payload: match msg.payload_view::<str>() {
+                Some(p) => {
+                    match p {
+                        Ok(pp) => Some(pp.to_string()),
+                        Err(_) => None,
+                    }
+                },
+                None => None,
+            },
+            timestamp: match msg.timestamp() {
+                rdkafka::message::Timestamp::NotAvailable => None,
+                rdkafka::message::Timestamp::CreateTime(t) => Some(t),
+                rdkafka::message::Timestamp::LogAppendTime(t) => Some(t),
+            },
+        }
+    }
+
+    pub fn payload_or_default(&self) -> String {
+        match &self.payload {
+            Some(p) => p.clone(),
+            None => "No Payload".to_string(),
+        }
+    }
+
+    pub fn timestamp_or_default(&self) -> String {
+        match &self.timestamp {
+            Some(t) => t.to_string(),
+            None => "N/A".to_string(),
+        }
+    }
+    
 }
