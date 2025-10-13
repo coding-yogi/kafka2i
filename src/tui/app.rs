@@ -1,10 +1,12 @@
 use std::str::FromStr;
+use std::thread;
 use std::{char, sync::Arc, time::Duration};
 use crossbeam::channel::Receiver;
 use log::{debug, error, info};
 use parking_lot::Mutex;
 use rdkafka::{consumer::ConsumerContext, ClientContext};
 use strum::{self, Display, EnumString};
+use tokio::time;
 use crate::kafka::consumer::{Consumer, ConsumerError, KafkaMessage};
 use crate::tui::widgets::Direction;
 
@@ -264,6 +266,9 @@ where T: ClientContext + ConsumerContext {
 
                 message_offset = high_watermark-1;
 
+                // sleep 100ms before seek
+                thread::sleep(Duration::from_millis(200));
+
                 // seek high watermark -1 by default and consume the message
                 if let Some(msg) = self.seek_and_consume(topic_name, partition_id, message_offset) {
                     message = pretty_print_json(&msg.payload_or_default());
@@ -308,7 +313,7 @@ where T: ClientContext + ConsumerContext {
 
         // Poll after assigning paritions
         // we do not want to capture the message just yet
-        match self.kafka_consumer.lock().consume(Duration::from_secs(1)) {
+        match self.kafka_consumer.lock().consume(Duration::from_secs(5)) {
             Ok(_) => (),
             Err(err) => {
                 error!("error while polling post assignment {}", err);
@@ -475,6 +480,9 @@ where T: ClientContext + ConsumerContext {
                 error!("error while assigning and polling for partition {}/{}: {}", topic_name, partition_id, err);
                 return;
             }
+
+            // sleep 100ms before seek
+            thread::sleep(Duration::from_millis(200));
 
             // seek high watermark -1 by default and consume the message
             if let Some(msg) = self.seek_and_consume(topic_name, partition_id, offset) {
