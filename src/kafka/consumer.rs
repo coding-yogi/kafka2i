@@ -68,7 +68,7 @@ impl ClientContext for StatsContext {
 }
 
 const DEFAULT_TIMEOUT_IN_SECS: Duration = Duration::from_secs(30);
-const DEFAULT_REFRESH_METADATA_IN_SECS: Duration = Duration::from_secs(10);
+const DEFAULT_REFRESH_METADATA_IN_SECS: Duration = Duration::from_secs(30);
 
 // Wraps Kafka Consumer from the lib
 pub struct Consumer<T>

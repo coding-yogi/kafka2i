@@ -132,10 +132,12 @@ impl TryInto<ClientConfig> for Config {
         client_config.set(GROUP_ID.to_string(), self.group_id);
 
         // test config
-        client_config.set("auto.offset.reset", "earliest");
-        client_config.set("enable.auto.commit", "false");
-        client_config.set("enable.auto.offset.store", "false");
-        
+        //client_config.set("auto.offset.reset", "earliest");
+        //client_config.set("enable.auto.commit", "false");
+        //client_config.set("enable.auto.offset.store", "false");
+
+        client_config.set("socket.keepalive.enable", "true");
+
         // stats interval
         client_config.set(STATS_INTERVAL_MS, "5000");
        

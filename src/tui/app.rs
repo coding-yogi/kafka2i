@@ -1,9 +1,10 @@
+use std::str::FromStr;
 use std::{char, sync::Arc, time::Duration};
 use crossbeam::channel::Receiver;
 use log::{debug, error};
 use parking_lot::Mutex;
 use rdkafka::{consumer::ConsumerContext, ClientContext};
-use strum::{self, Display};
+use strum::{self, Display, EnumString};
 use crate::kafka::consumer::{Consumer, ConsumerError};
 use crate::tui::widgets::Direction;
 
@@ -39,10 +40,19 @@ pub enum AppEvent {
 }
 
 // AppCMDs
-const CMD_OFFSET: &str = ":offset!";
+#[derive(Clone, Debug, Display, PartialEq, EnumString)]
+enum Command {
+    #[strum(serialize = ":offset")]
+    Offset,
+    #[strum(serialize = ":ts")]
+    Timestamp,
+    Invalid,
+}
 
 // AppErr
 const ERR_INVALID_CMD: &str = "err:InvalidCMD";
+const ERR_INVALID_OFFSET: &str = "err:InvalidOffset";
+const ERR_NO_SELECTED_PARTITION: &str = "err:NoSelectedPartition";
 
 // App state maintains the state at app level
 struct AppState {
@@ -226,7 +236,7 @@ where T: ClientContext + ConsumerContext {
             let mut high_watermark: i64 = -1;
             let mut low_watermark: i64 = -1;
             let mut message: String = "".to_string();
-            let mut message_offset: i64 = -1;
+            let mut message_offset: i64 = -1; 
 
             if let Some((topic_name, partition_id)) = get_topic_and_parition_id(&selected_partition) {
                 // fetch watermarks for the give topic and partition id 
@@ -235,20 +245,21 @@ where T: ClientContext + ConsumerContext {
                         low_watermark = l;
                         high_watermark = h;
                     },
-                    Err(err) => error!("error while fetching watermark on topic {}/{}: {}", topic_name, partition_id, err),
+                    Err(err) => {
+                        error!("error while fetching watermark on topic {}/{}: {}", topic_name, partition_id, err);
+                        return;
+                    }
                 };
-                    
-                // Assign current parition to consumer
-                debug!("assigning partition {} for the topic {}", partition_id, topic_name);
+
+                // Assign current partition to consumer
                 if let Err(err) = self.assign_and_poll(topic_name, partition_id) {
                     error!("error while assigning and polling for partition {}/{}: {}", topic_name, partition_id, err);
                     return;
                 }
-                   
-                // get the last message. set the offset based on HWM which is HWM - 1
+
                 message_offset = high_watermark-1;
 
-                // seek and consume the message
+                // seek high watermark -1 by default and consume the message
                 if let Some(msg) = self.seek_and_consume(topic_name, partition_id, message_offset) {
                     message = msg;
                 } else {
@@ -281,7 +292,7 @@ impl <T> App<'_, T>
 where T: ClientContext + ConsumerContext {
     // assign and poll the consumer for the given topic, partition and offset
     fn assign_and_poll(&mut self, topic_name: &str, partition_id: i32) -> Result<(), ConsumerError> {
-        // Assign current parition to consumer
+        debug!("assigning partition {} for the topic {}", partition_id, topic_name);
         match self.kafka_consumer.lock().assign(topic_name, partition_id) {
             Ok(()) => (),
             Err(err) => {
@@ -305,7 +316,6 @@ where T: ClientContext + ConsumerContext {
 
     // Seek and consume message from the given offset
     fn seek_and_consume(&mut self, topic_name: &str, partition_id: i32, offset: i64) -> Option<String>{
-
         match self.kafka_consumer.lock().seek(topic_name, partition_id, offset) {
             Ok(()) => (),
             Err(err) => {
@@ -315,7 +325,7 @@ where T: ClientContext + ConsumerContext {
         }
 
         // consumer the message from the seeked offset
-        match self.kafka_consumer.lock().consume(Duration::from_secs(1)) {
+        match self.kafka_consumer.lock().consume(Duration::from_secs(5)) {
             Ok(msg) => msg,
             Err(err) => {
                 error!("error consuming message on topic {}/{} at offset {}: {}", topic_name, partition_id, offset, err);
@@ -337,7 +347,6 @@ where T: ClientContext + ConsumerContext {
 // Implementation block to handle all input events
 impl <T> App<'_, T>
 where T: ClientContext + ConsumerContext {
-
     // Toggle the edit mode to accept input
     fn toggle_edit_mode(&mut self, mode: EditMode) {
         match mode {
@@ -363,21 +372,116 @@ where T: ClientContext + ConsumerContext {
         let input_value = self.layout.lock().footer_layout.input_value();
         self.layout.lock().footer_layout.handle_input_event(InputEvent::Reset);
 
-        //validate input
-        if !self.valid_input(&input_value) {
-            return;
-        }
+        //handle cmd
+        self.handle_command(&input_value)
     }
 
-    // validate input
-    fn valid_input(&mut self, input: &str) -> bool {
-        if !input.starts_with(CMD_OFFSET) {
-            debug!("setting {} on footer", ERR_INVALID_CMD);
+    // validate cmd
+    fn handle_command(&mut self, input: &str)  {
+
+        let inputs = input.split("!").collect::<Vec<&str>>();
+        if inputs.len() < 2 {
             self.layout.lock().footer_layout.set_value(ERR_INVALID_CMD);
-            return false;
+            error!("invalid command {}: command should be of format :<command>!<arg>", input);
+            return;
         }
 
-        true
+        let (command, arg) = match Command::from_str(inputs[0]) {
+           Ok(cmd) => (cmd, inputs[1]),
+           Err(err) => {
+               self.layout.lock().footer_layout.set_value(ERR_INVALID_CMD);
+               error!("error parsing command {}: {}", input, err);
+               return;
+           }
+       };
+
+       match command {
+           Command::Invalid => return,
+           Command::Offset => self.handle_offset_command(arg),
+           Command::Timestamp => () // self.handle_timestamp_command(arg),
+       }
+    }
+}
+
+// Handle all commands
+impl <T> App<'_, T>
+where T: ClientContext + ConsumerContext {
+    // Get the kafka consumer
+    pub fn handle_offset_command(&mut self, offset_str: &str)  {
+        //check if offset is a number
+        let offset = match offset_str.parse::<i64>() {
+            Ok(o) => o,
+            Err(_) => {
+                self.layout.lock().footer_layout.set_value(ERR_INVALID_OFFSET);
+                error!("invalid offset {}", offset_str);
+                return;
+            }
+        };
+
+        let selected_partition = match self.get_selected_item_for_list(PARTITIONS_LIST) {
+            Some(p) => p,
+            None => {
+                self.layout.lock().footer_layout.set_value(ERR_NO_SELECTED_PARTITION);
+                error!("no partition selected to seek");
+                return;
+            }
+        };
+
+        let partition = match self.kafka_consumer.lock().metadata().get_partition(&selected_partition) {
+            Some(partition) => partition,
+            None => {
+                error!("Unable to get details for partition with name: {}", selected_partition);
+                return;
+            }
+        };
+
+        // get high water mark for the topic
+        let mut high_watermark: i64 = -1;
+        let mut low_watermark: i64 = -1;
+        let mut message: String = "".to_string();
+
+        if let Some((topic_name, partition_id)) = get_topic_and_parition_id(&selected_partition) {
+            // fetch watermarks for the give topic and partition id 
+            match self.kafka_consumer.lock().fetch_watermarks(topic_name, partition_id) {
+                Ok((l, h)) => {
+                    low_watermark = l;
+                    high_watermark = h;
+                },
+                Err(err) => {
+                    error!("error while fetching watermark on topic {}/{}: {}", topic_name, partition_id, err);
+                    return;
+                }
+            };
+
+            // check is offset is lesser than high watermark and greater than low watermark
+            if offset < low_watermark || offset > high_watermark {
+                self.layout.lock().footer_layout.set_value(ERR_INVALID_OFFSET);
+                error!("invalid offset {}, should be between {} and {}", offset, low_watermark, high_watermark);
+                return;
+            }
+
+             // Assign current partition to consumer
+            if let Err(err) = self.assign_and_poll(topic_name, partition_id) {
+                error!("error while assigning and polling for partition {}/{}: {}", topic_name, partition_id, err);
+                return;
+            }
+
+            // seek high watermark -1 by default and consume the message
+            if let Some(msg) = self.seek_and_consume(topic_name, partition_id, offset) {
+                message = msg;
+            } else {
+                error!("no message was returned");
+                return;
+            }
+
+            debug!("fetched message at offset {} on topic {}/{}", offset, topic_name, partition_id);
+                
+            // Update UI
+            let partition_details = generate_partition_details(partition.leader(), partition.isr().len(), partition.replicas().len(), low_watermark, high_watermark);
+            self.layout.lock().main_layout.details_layout.details.update_cell_data(PARTITIONS_LIST, 0, partition_details);
+            self.layout.lock().main_layout.details_layout.message.update_with_title(format!("Message ({})", offset), message.into());
+        }
+
     }
 }
 

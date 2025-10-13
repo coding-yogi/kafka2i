@@ -55,7 +55,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         loop {
             // poll to pull stats
             //let _ = stats_consumer.consume();
-            let _ = message_consumer_clone.lock().consume(Duration::from_secs(1));
+            //let _ = message_consumer_clone.lock().consume(Duration::from_secs(1));
 
             // receive stats
             //match stats_receiver.recv_timeout(Duration::from_secs(5)) {
