@@ -174,7 +174,8 @@ where T: ClientContext + ConsumerContext
                 Some(Ok(msg)) => return Ok(Some(KafkaMessage::new(&msg))),
                 Some(Err(err)) => {
                     if let KafkaError::MessageConsumption(err_msg) = &err && *err_msg == RDKafkaErrorCode::BrokerTransportFailure {
-                        if retries > 0 && with_retries {
+                        // We don't use with_retries flag here as this is a specific error we want to retry on
+                        if retries > 0 {
                             log::warn!("consume resulted in broker transport failure, retrying ...");
                             retries -= 1;
                             std::thread::sleep(Duration::from_millis(100));
