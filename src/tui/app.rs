@@ -77,6 +77,7 @@ where T: ClientContext + ConsumerContext
     state: AppState,
     kafka_consumer: Arc<Mutex<Consumer<T>>>,
     app_event_recv: Receiver<AppEvent>,
+    clipboard: arboard::Clipboard,
 }
 
 // This impl block only defines the new state of the app
@@ -96,7 +97,8 @@ where T: ClientContext + ConsumerContext
            },
            //terminal: t,
            kafka_consumer,
-           app_event_recv
+           app_event_recv,
+           clipboard: arboard::Clipboard::new().unwrap(),
         };
 
         app.layout.lock().footer_layout.update_mode(mode.to_string());
@@ -237,8 +239,6 @@ where T: ClientContext + ConsumerContext {
             // get high water mark for the topic
             let mut high_watermark: i64 = -1;
             let mut low_watermark: i64 = -1;
-            let mut message: String = "".to_string();
-            let mut message_timestamp: String = "".to_string();
             let mut message_offset: i64 = -1; 
 
             if let Some((topic_name, partition_id)) = get_topic_and_parition_id(&selected_partition) {
@@ -271,16 +271,12 @@ where T: ClientContext + ConsumerContext {
 
                 // seek high watermark -1 by default and consume the message
                 if let Some(msg) = self.seek_and_consume(topic_name, partition_id, message_offset) {
-                    message = pretty_print_json(&msg.payload_or_default());
-                    message_timestamp = msg.timestamp_or_default();
+                   self.write_message(msg);
                 } else {
+                    error!("no message was returned");
                     return;
                 }
             }
-
-            // update message
-            info!("message fetched at offset {} of partition {}: {}", message_offset, selected_partition, message);
-            self.layout.lock().main_layout.details_layout.message.update_with_title(format!("Message offset:{} ts:{}", message_offset, message_timestamp), message.into());
         }
     }
 
@@ -313,7 +309,7 @@ where T: ClientContext + ConsumerContext {
 
         // Poll after assigning paritions
         // we do not want to capture the message just yet
-        match self.kafka_consumer.lock().consume(Duration::from_secs(5)) {
+        match self.kafka_consumer.lock().consume(Duration::from_secs(5), false) {
             Ok(_) => (),
             Err(err) => {
                 error!("error while polling post assignment {}", err);
@@ -335,7 +331,7 @@ where T: ClientContext + ConsumerContext {
         }
 
         // consumer the message from the seeked offset
-        match self.kafka_consumer.lock().consume(Duration::from_secs(5)) {
+        match self.kafka_consumer.lock().consume(Duration::from_secs(5), true) {
             Ok(msg) =>  msg,
             Err(err) => {
                 error!("error consuming message on topic {}/{} at offset {}: {}", topic_name, partition_id, offset, err);
@@ -352,6 +348,30 @@ where T: ClientContext + ConsumerContext {
 
         return None;
     }
+
+    // Write message to TUI
+    fn write_message(&mut self, message: KafkaMessage) {
+                let message_payload = pretty_print_json(&message.payload_or_default());
+                let message_timestamp = message.timestamp_or_default();
+                let message_offset = message.offset;
+
+        // copy to clipboard
+        if let Err(err) = self.copy_to_clipboard(&message_payload) {
+            error!("error while copying message to clipboard: {}", err);
+        }
+
+        // write to TUI
+        info!("message fetched at offset {} of partition {}/{}: {}", message_offset, message.topic, message.partition, message_payload);
+        self.layout.lock().main_layout.details_layout.message.update_with_title(format!("Message offset:{} ts:{}", message_offset, message_timestamp), message_payload.into());
+    }
+
+
+    // Copy message to clipboard
+    fn copy_to_clipboard(&mut self, message: &str) -> Result<(), Box<dyn std::error::Error>> {
+        self.clipboard.set_text(message.to_string())?;
+        Ok(())
+    }
+
 }
 
 // Implementation block to handle all input events
@@ -448,8 +468,6 @@ where T: ClientContext + ConsumerContext {
         // get high water mark for the topic
         let mut high_watermark: i64 = -1;
         let mut low_watermark: i64 = -1;
-        let mut message: String = "".to_string();
-        let mut message_timestamp: String = "".to_string();
 
         if let Some((topic_name, partition_id)) = get_topic_and_parition_id(&selected_partition) {
             // fetch watermarks for the give topic and partition id 
@@ -481,21 +499,14 @@ where T: ClientContext + ConsumerContext {
                 return;
             }
 
-            // sleep 100ms before seek
-            thread::sleep(Duration::from_millis(200));
 
             // seek high watermark -1 by default and consume the message
             if let Some(msg) = self.seek_and_consume(topic_name, partition_id, offset) {
-                message = pretty_print_json(&msg.payload_or_default());
-                message_timestamp = msg.timestamp_or_default();
+                self.write_message(msg);
             } else {
                 error!("no message was returned");
                 return;
             }
-
-            // update message
-             info!("message fetched at offset {} of partition {}: {}", offset, selected_partition, message);
-            self.layout.lock().main_layout.details_layout.message.update_with_title(format!("Message offset:{} ts:{}", offset, message_timestamp), message.into());
         }
 
     }
@@ -552,3 +563,4 @@ fn pretty_print_json(json_str: &str) -> String {
         Err(_) => json_str.to_string()
     }
 }
+

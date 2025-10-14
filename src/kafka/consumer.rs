@@ -164,13 +164,45 @@ where T: ClientContext + ConsumerContext
     }
 
     // Consume
-    pub fn consume(&self, timeout: Duration) -> Result<Option<KafkaMessage>> {
+    pub fn consume(&self, timeout: Duration, with_retries: bool) -> Result<Option<KafkaMessage>> {
         debug!("polling for a message");
-        if let Some(msg_result) = self.base_consumer.poll(timeout) {
-            let msg = msg_result?;
-            return Ok(Some(KafkaMessage::new(&msg)));
+
+        // retry consume upto 3 times with a backoff of 100ms when error if error is Broker transport failure
+        let mut retries = 3;
+        loop {
+            match self.base_consumer.poll(timeout) {
+                Some(Ok(msg)) => return Ok(Some(KafkaMessage::new(&msg))),
+                Some(Err(err)) => {
+                    if let KafkaError::MessageConsumption(err_msg) = &err && *err_msg == RDKafkaErrorCode::BrokerTransportFailure {
+                        if retries > 0 && with_retries {
+                            log::warn!("consume resulted in broker transport failure, retrying ...");
+                            retries -= 1;
+                            std::thread::sleep(Duration::from_millis(100));
+                            continue;
+                        } else {
+                            log::error!("consume resulted in broker transport failure, failing consume");
+                            return Err(err.into());
+                        }
+                    } else {
+                        return Err(err.into());
+                    }
+                },
+                None => {
+                    // log and continue retries
+                    if retries > 0 && with_retries {
+                        log::warn!("no message received, retrying ...");
+                        retries -= 1;
+                        std::thread::sleep(Duration::from_millis(100));
+                        continue;
+                    } else {
+                        log::debug!("no message received");
+                        break;
+                    }
+                },
+            }
         }
 
+        debug!("message is none");
         Ok(None)
     }
 
@@ -208,9 +240,30 @@ where T: ClientContext + ConsumerContext
     // Seek for a specific topic and partition
     pub fn seek(&self, topic: &str, partition: i32, offset: i64) -> Result<()> {
         debug!("seeking offset {}, on topic {}/{}", offset, topic, partition);
-        self.base_consumer.seek(topic, partition, Offset::Offset(offset), DEFAULT_TIMEOUT_IN_SECS)?;
-        
-       
+
+        //retry seek upto 3 times with a backoff of 100ms when error is Erroneous state
+        let mut retries = 3;
+        loop {
+            match self.base_consumer.seek(topic, partition, Offset::Offset(offset), DEFAULT_TIMEOUT_IN_SECS) {
+                Ok(_) => break,
+                Err(err) => {
+                    if let KafkaError::Seek(err_msg) = &err && err_msg == "Local: Erroneous state" {
+                        if retries > 0 {
+                            log::warn!("seek resulted in erroneous state, retrying ...");
+                            retries -= 1;
+                            std::thread::sleep(Duration::from_millis(100));
+                            continue;
+                        } else {
+                            log::error!("seek resulted in erroneous state even after retries, failing seek");
+                            return Err(err.into());
+                        }
+                    } else {
+                        return Err(err.into());
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 

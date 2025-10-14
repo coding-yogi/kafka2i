@@ -168,8 +168,10 @@ impl <'a> UIList <'a> {
 
     pub fn selected_item(&self) -> Option<String> {
         if let Some(idx) = self.state() {
-            return Some(self.items.get(idx).unwrap().clone());
-        } 
+            if let Some(item) = self.items.get(idx) {
+                return Some(item.clone());
+            }
+        }
 
         None
     }

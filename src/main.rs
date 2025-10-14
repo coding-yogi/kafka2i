@@ -38,6 +38,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let consumer_groups = message_consumer.lock().fetch_groups()?;
     message_consumer.lock().update_metadata(metadata, consumer_groups);
 
+    // Poll once
+    let _ = message_consumer.lock().consume(Duration::from_secs(5), false);
+
     // Clone
     let message_consumer_clone = message_consumer.clone();
     let refresh_metadata_duration = message_consumer_clone.lock().refresh_metadata_in_secs;
