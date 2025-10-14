@@ -9,6 +9,7 @@ const BOOTSTRAP_SERVERS: &str = "bootstrap.servers";
 const GROUP_ID: &str = "group.id";
 const SESSION_TIMEOUT_MS: &str = "session.timeout.ms";
 const ENABLE_AUTO_COMMIT: &str = "enable.auto.commit";
+const SOCKET_KEEP_ALIVE: &str = "socket.keepalive.enable";
 const STATS_INTERVAL_MS: &str = "statistics.interval.ms";
 const SECURITY_PROTOCOL: &str = "security.protocol";
 const CA_CERT_LOCATION: &str = "ssl.ca.location";
@@ -101,7 +102,7 @@ pub struct Config {
     pub group_id: String,
 
     /// Protocol to use
-    #[arg(short, long, default_value_t = Protocol::PlainText)]
+    #[arg(short, long, default_value_t = Protocol::Ssl)]
     pub protocol: Protocol,
 
     /// Full path to CA location for validating SSL Certificate, If not set, certificate validation will be ignored
@@ -131,12 +132,8 @@ impl TryInto<ClientConfig> for Config {
         // group id
         client_config.set(GROUP_ID.to_string(), self.group_id);
 
-        // test config
-        //client_config.set("auto.offset.reset", "earliest");
-        //client_config.set("enable.auto.commit", "false");
-        //client_config.set("enable.auto.offset.store", "false");
-
-        client_config.set("socket.keepalive.enable", "true");
+        // keepalive
+        client_config.set(SOCKET_KEEP_ALIVE, "true");
 
         // stats interval
         client_config.set(STATS_INTERVAL_MS, "5000");
