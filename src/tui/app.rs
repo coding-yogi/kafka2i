@@ -54,6 +54,8 @@ const ERR_INVALID_CMD: &str = "err:InvalidCMD";
 const ERR_INVALID_OFFSET: &str = "err:InvalidOffset";
 const ERR_NO_SELECTED_PARTITION: &str = "err:NoSelectedPartition";
 
+const UNINITIALISED_OFFSET: i64 = -999;
+
 // App state maintains the state at app level
 struct AppState {
     // should_quit tells the main loop to terminate the app
@@ -62,6 +64,8 @@ struct AppState {
     mode: Mode,
     //edit mode
     edit_mode: EditMode,
+    //offset for selected partition
+    offset: i64,
 }
 
 // App is the high level struct containing
@@ -92,6 +96,7 @@ where T: ClientContext + ConsumerContext
                 should_quit: false,
                 mode: mode.clone(),
                 edit_mode: EditMode::Normal,
+                offset: UNINITIALISED_OFFSET,
             },
             //terminal: t,
             kafka_consumer,
@@ -239,6 +244,8 @@ where T: ClientContext + ConsumerContext {
     // populates the TUI with details of the partition selected
     fn handle_partition_list_navigation(&mut self) {
         if let Some(selected_partition) = self.get_selected_item_for_list(PARTITIONS_LIST) {
+            // reset the stored offset after selecting a new partition
+            self.state.offset = UNINITIALISED_OFFSET;
             self.fetch_message(&selected_partition, -1);
         }
     }
@@ -379,7 +386,6 @@ where T: ClientContext + ConsumerContext {
             let partition_details = generate_partition_details(partition.leader(), partition.isr().len(), partition.replicas().len(), low_watermark, high_watermark);
             self.layout.lock().main_layout.details_layout.details.update_cell_data(PARTITIONS_LIST, 0, partition_details);
 
-
             // set correct offset
             if offset == -1 {
                 // set offset to the end as per the HWM
@@ -401,6 +407,9 @@ where T: ClientContext + ConsumerContext {
             self.layout.lock().main_layout.details_layout.message.update("seeking offset & fetching message ...".into());
             if let Some(msg) = self.seek_and_consume(topic_name, partition_id, offset) {
                 self.write_message(msg);
+
+                // Update offset in the state after fetching the msg successfully
+                self.state.offset = offset;
             } else {
                 self.log_error_and_update(format!("no message was returned"));
                 return;
@@ -523,25 +532,17 @@ where T: ClientContext + ConsumerContext {
             }
         };
 
-        if let Some((topic_name, partition_id)) = get_topic_and_parition_id(&selected_partition) {
-            // fetch current offset
-            let mut offset = match self.kafka_consumer.lock().fetch_offset(topic_name, partition_id) {
-                Ok(offset) => offset,
-                Err(err) => {
-                    error!("error fetching the current committed offset for {}: {}", selected_partition, err);
-                    return;
-                }
-            };
+        // fetch current offset from state
+        let mut offset = self.state.offset;
 
-            // Increment / decrement offset based on the direction
-            match direction {
-                Direction::LEFT => offset-=1,
-                Direction::RIGHT => offset+=1,     
-                _ => ()                   
-            }
-
-            self.fetch_message(&selected_partition, offset);
+        // Increment / decrement offset based on the direction
+        match direction {
+            Direction::LEFT => offset-=1,
+            Direction::RIGHT => offset+=1,
+            _ => ()
         }
+
+        self.fetch_message(&selected_partition, offset);
     }
 
     pub fn handle_help_command(&mut self) {
@@ -555,7 +556,6 @@ impl <T> App<'_, T>
 where T: ClientContext + ConsumerContext {
     
 }
-
 
 // Generate broker deatils
 fn generate_broker_details(id: i32, status: &str, partitions: usize) -> String {
