@@ -5,7 +5,7 @@ use super::widgets::{AppWidget, Direction, InputEvent, UIInput, UIList, UIParagr
 
 const APP_NAME: &str = "Kafka2i - TUI for Kafka";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
-const APP_FOOTER: &str = "<TAB> Navigate Lists | <ESC> Quit | <UP/DOWN> Scroll List";
+const APP_FOOTER: &str = "Press <H> for help | Press <ESC> to quit";
 
 pub const BROKERS_LIST: &str = "Brokers";
 pub const CONSUMER_GROUPS_LIST: &str = "Consumer Groups";

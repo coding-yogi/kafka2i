@@ -340,6 +340,10 @@ where T: ClientContext + ConsumerContext {
 
     // fetch message based on the parition name and offset
     fn fetch_message(&mut self, partition_str:&str, offset: i64) {
+
+        // Clear the message block
+        self.layout.lock().main_layout.details_layout.message.update("".into());
+
         let mut offset = offset;
 
         let partition = match self.kafka_consumer.lock().metadata().get_partition(partition_str) {
@@ -354,6 +358,9 @@ where T: ClientContext + ConsumerContext {
             // get high water mark for the topic
             let high_watermark: i64;
             let low_watermark: i64;
+
+            // Update status in message block
+            self.layout.lock().main_layout.details_layout.message.update("fetching watermarks ...".into());
 
             // fetch watermarks for the give topic and partition id
             match self.kafka_consumer.lock().fetch_watermarks(topic_name, partition_id) {
@@ -371,27 +378,30 @@ where T: ClientContext + ConsumerContext {
             let partition_details = generate_partition_details(partition.leader(), partition.isr().len(), partition.replicas().len(), low_watermark, high_watermark);
             self.layout.lock().main_layout.details_layout.details.update_cell_data(PARTITIONS_LIST, 0, partition_details);
 
+
             // set correct offset
             if offset == -1 {
                 // set offset to the end as per the HWM
                 offset = high_watermark - 1;
             } else if  offset < low_watermark || offset >= high_watermark {
                 self.layout.lock().footer_layout.set_value(ERR_INVALID_OFFSET);
-                error!("invalid offset {}, should be between {} and {}", offset, low_watermark, high_watermark);
+                self.log_error_and_update(format!("invalid offset {}, should be between {} and {}", offset, low_watermark, high_watermark));
                 return;
             }
 
             // Assign current partition to consumer
+            self.layout.lock().main_layout.details_layout.message.update("assigning partition ...".into());
             if let Err(err) = self.assign_and_poll(topic_name, partition_id) {
-                error!("error while assigning and polling for partition {}/{}: {}", topic_name, partition_id, err);
+                self.log_error_and_update(format!("error assigning and polling for partition {}/{}: {}", topic_name, partition_id, err));
                 return;
             }
 
             // seek high watermark -1 by default and consume the message
+            self.layout.lock().main_layout.details_layout.message.update("seeking offset & fetching message ...".into());
             if let Some(msg) = self.seek_and_consume(topic_name, partition_id, offset) {
                 self.write_message(msg);
             } else {
-                error!("no message was returned");
+                self.log_error_and_update(format!("no message was returned"));
                 return;
             }
         }
@@ -405,6 +415,12 @@ where T: ClientContext + ConsumerContext {
         }
         
         Ok(())
+    }
+
+    // log error and update TUI
+    fn log_error_and_update(&mut self, message: String) {
+        error!("{}", message);
+        self.layout.lock().main_layout.details_layout.message.update(message.into());
     }
 }
 
