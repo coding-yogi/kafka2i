@@ -5,8 +5,8 @@ use ratatui::{
 };
 use tui_input::{Input, InputRequest};
 
-const HIGHLIGHT_COLOR: Color = Color::Yellow;
-const NORMAL_COLOR: Color = Color::Green;
+pub const HIGHLIGHT_COLOR: Color = Color::Yellow;
+pub const NORMAL_COLOR: Color = Color::Green;
 
 pub enum Direction {
     UP,
@@ -312,6 +312,15 @@ impl <'a> UIParagraph<'a> {
             name: name.clone(),
             paragraph: Paragraph::new(text)
             .block(create_block(NORMAL_COLOR, name, true)),
+            area: Rect::default()
+        }
+    }
+
+    pub fn new_with_color(name: String, bg_color: Color, text: Text<'a>) -> UIParagraph<'a> {
+        UIParagraph {
+            name: name.clone(),
+            paragraph: Paragraph::new(text)
+            .block(create_block(bg_color, name, true)),
             area: Rect::default()
         }
     }

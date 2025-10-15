@@ -141,8 +141,9 @@ where T: ClientContext + ConsumerContext {
                                 },
                                 AppEvent::Edit => self.toggle_edit_mode(EditMode::Editing),
                                 AppEvent::Input(char) => match char {
-                                    'm' => self.handle_message_scroll(Direction::DOWN),
-                                    'n' => self.handle_message_scroll(Direction::UP),
+                                    'm' | 'M' => self.handle_message_scroll(Direction::DOWN),
+                                    'n' | 'N' => self.handle_message_scroll(Direction::UP),
+                                    'h' => self.handle_help_command(),
                                     _ => (),
                                 },
                                 _ => (),
@@ -542,7 +543,19 @@ where T: ClientContext + ConsumerContext {
             self.fetch_message(&selected_partition, offset);
         }
     }
+
+    pub fn handle_help_command(&mut self) {
+        let current_state = self.layout.lock().show_help;
+        self.layout.lock().show_help = !current_state;
+    }
 }
+
+// Handle help command
+impl <T> App<'_, T>
+where T: ClientContext + ConsumerContext {
+    
+}
+
 
 // Generate broker deatils
 fn generate_broker_details(id: i32, status: &str, partitions: usize) -> String {

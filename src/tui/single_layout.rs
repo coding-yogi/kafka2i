@@ -1,5 +1,7 @@
-use ratatui::{layout::{Constraint, Layout, Rect}, Frame, text::{Text, Span}, widgets::ScrollbarOrientation, style::{Stylize}};
+use ratatui::{layout::{Constraint, Layout, Rect}, style::Stylize, text::{Line, Span, Text}, widgets::{Clear, ScrollbarOrientation}, Frame};
 use crate::kafka::metadata::Metadata;
+
+use::log::debug;
 
 use super::widgets::{AppWidget, Direction, InputEvent, UIInput, UIList, UIParagraph, UIParagraphWithScrollbar, UITable};
 
@@ -12,11 +14,15 @@ pub const CONSUMER_GROUPS_LIST: &str = "Consumer Groups";
 pub const TOPICS_LIST: &str = "Topics";
 pub const PARTITIONS_LIST: &str = "Partitions";
 
+
+
 // Top level application layout
 pub struct AppLayout<'a> {
     pub header_layout: HeaderLayout<'a>,
     pub main_layout: MainLayout<'a>,
     pub footer_layout: FooterLayout<'a>,
+    pub help_layout: HelpLayout<'a>,
+    pub show_help: bool,
 }
 
 impl <'a> AppLayout<'a> {
@@ -25,6 +31,8 @@ impl <'a> AppLayout<'a> {
             header_layout: HeaderLayout::new(),
             main_layout: MainLayout::new(metadata),
             footer_layout: FooterLayout::new(),
+            help_layout: HelpLayout::new(),
+            show_help: false,
         }
     }
 
@@ -38,7 +46,46 @@ impl <'a> AppLayout<'a> {
         self.header_layout.render(frame, title);
         self.main_layout.render(frame, main);
         self.footer_layout.render(frame, footer);
+
+        // centered help layout
+        if self.show_help {
+            self.help_layout.render(frame, self.centered_help_area(frame));
+        }
     }
+
+    // function to get a rect of 60 x 40 in the center of the terminal
+    fn centered_help_area(&self, frame: &Frame) -> Rect {
+        let area = frame.size();
+        let width = 45;
+        let height = 45;
+
+        let popup_layout = Layout::default()
+        .direction(ratatui::layout::Direction::Vertical)
+        .constraints(
+            [
+                Constraint::Percentage((100 - height) / 2),
+                Constraint::Percentage(height),
+                Constraint::Percentage((100 - height) / 2),
+            ]
+            .as_ref(),
+        )
+        .split(area);
+
+        let vertical = Layout::default()
+            .direction(ratatui::layout::Direction::Horizontal)
+            .constraints(
+                [
+                    Constraint::Percentage((100 - width) / 2),
+                    Constraint::Percentage(width),
+                    Constraint::Percentage((100 - width) / 2),
+                ]
+                .as_ref(),
+            )
+            .split(popup_layout[1]);
+
+        vertical[1]
+    }
+
 }
 
 // Header Layout
@@ -219,4 +266,58 @@ impl <'a> FooterLayout<'a> {
         self.footer.render(frame, key_mappings);
         self.input.render(frame, input);
     }
+}
+
+// Help Layout
+pub struct HelpLayout<'a> {
+    help: UIParagraph<'a>,
+}
+
+impl <'a> HelpLayout<'a> {
+    pub fn new() -> HelpLayout<'a> {
+        let help_text = Text::from(vec![
+            Line::from(Span::from("Help Menu").bold().underlined().green().into_centered_line()),
+            Span::from("").into(),
+            Line::from(Span::from(" Key Mappings:").green()),
+            Span::from("").into(),
+            help_option(" TAB      ", "Navigate between lists"),
+            help_option(" UP/DOWN  ", "Scroll thru the selected lists"),
+            help_option(" M        ", "Scroll down the message pane"),
+            help_option(" N        ", "Scroll up the message pane"),
+            help_option(" RIGHT    ", "Move to next offset"),
+            help_option(" Left     ", "Move to previous offset"),
+            help_option(" :        ", "Enter edit mode"),
+            help_option(" H        ", "Show/Hide help menu"),
+            help_option(" ESC      ", "Exist the application"),
+            Span::from("").into(),
+            Line::from(Span::from(" Commands (edit mode):").green()),
+            Span::from("").into(),
+            help_option(" offset!<num>  ", "Fetches the message at a given offset"),
+            help_option(" ts!<epoch>    ", "Fetches the message for a given timestamp"),
+
+        ]);
+
+        let mut paragraph = UIParagraph::new_with_color("Help".to_string(), ratatui::style::Color::Gray, help_text);
+        paragraph.highlight_border();
+
+        HelpLayout {
+            help: paragraph,
+        }
+    }
+
+    pub fn render(&mut self, frame: &mut Frame, area: Rect) {
+        // clear existing area before showing help dialog
+        frame.render_widget(Clear, area);
+        self.help.render(frame, area);
+    }
+
+    
+}
+
+// Generate a line for a given help option
+fn help_option<'a>(key: &'a str, purpose: &'a str) -> Line<'a> {
+    Line::from(vec![
+        Span::from(key).bold().green().into(), 
+        Span::from(purpose).into(),
+    ])
 }
