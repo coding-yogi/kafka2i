@@ -177,13 +177,24 @@ impl <'a> ListsLayout<'a> {
         self.lists[self.selected_list].handle_navigation(direction);
     }
 
-    pub fn hande_tab(&mut self) {
+    pub fn handle_tab(&mut self, back_tab: bool) {
         // normalise current block
         self.lists[self.selected_list].normalise_border();
 
-        let mut new_idx = self.selected_list.saturating_add(1);
-        if new_idx == self.lists.len() {
-            new_idx = 0
+        let mut new_idx = self.selected_list;
+
+        if back_tab {
+            if new_idx == 0 {
+                new_idx = self.lists.len() - 1;
+            } else {
+                new_idx = self.selected_list.saturating_sub(1);
+            }
+
+        } else {
+            new_idx = self.selected_list.saturating_add(1);
+            if new_idx == self.lists.len() {
+                new_idx = 0
+            }
         }
         
         // higlight selected list border

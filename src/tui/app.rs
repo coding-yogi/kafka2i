@@ -28,6 +28,7 @@ enum EditMode {
 
 pub enum AppEvent {
     Tab,
+    BackTab,
     Up,
     Down,
     Left,
@@ -135,7 +136,8 @@ where T: ClientContext + ConsumerContext {
                     match self.state.edit_mode {
                         EditMode::Normal => {
                             match event {
-                                AppEvent::Tab => self.handle_tab(),
+                                AppEvent::Tab => self.handle_tab(false),
+                                AppEvent::BackTab => self.handle_tab(true),
                                 AppEvent::Up => self.handle_list_navigation(Direction::UP),
                                 AppEvent::Down => self.handle_list_navigation(Direction::DOWN),
                                 AppEvent::Left => self.handle_offset_navigation(Direction::LEFT),
@@ -181,8 +183,8 @@ impl <T> App<'_, T>
 where T: ClientContext + ConsumerContext {
 
     // Handles tab event which switches between the available tabs
-    fn handle_tab(&mut self) {
-        self.layout.lock().main_layout.lists_layout.hande_tab();
+    fn handle_tab(&mut self, back_tab: bool) {
+        self.layout.lock().main_layout.lists_layout.handle_tab(back_tab);
     }
 
     // Handles the list navigation for the list in focus 

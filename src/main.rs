@@ -135,6 +135,7 @@ async fn run<'a, T: ClientContext + ConsumerContext>(t: &'a mut Terminal<Crosste
                             KeyEventKind::Press => {
                                 let _ = match key.code {
                                     KeyCode::Tab => sender.send(AppEvent::Tab),
+                                    KeyCode::BackTab => sender.send(AppEvent::BackTab),
                                     KeyCode::Up => sender.send(AppEvent::Up),
                                     KeyCode::Down => sender.send(AppEvent::Down),
                                     KeyCode::Left => sender.send(AppEvent::Left),
