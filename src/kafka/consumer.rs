@@ -277,15 +277,16 @@ where T: ClientContext + ConsumerContext
         Ok(())
     }
 
-    // set offsets against a timestamp for a TPL fetched from assignment
-    pub fn seek_on_timestamp(&self, timestamp: i64) -> Result<()> {
+    // return the offset for a specific parition & timestamp
+    pub fn offsets_for_timestamp(&self, topic: &str, partition: i32, timestamp: i64) -> Result<Option<i64>> {
         let tpl = self.base_consumer.offsets_for_timestamp(timestamp, DEFAULT_TIMEOUT_IN_SECS)?;
         for e in tpl.elements() {
-            log::debug!("seeking on topic {} & partition {}, offset {} with err {:?}", e.topic(), e.partition(), e.offset().to_raw().unwrap(), e.error());
-            self.seek(e.topic(), e.partition(), e.offset().to_raw().unwrap())?;
+            if e.topic() == topic && e.partition() == partition {
+                return Ok(e.offset().to_raw());
+            }
         }
 
-        Ok(())
+        Ok(None)
     }
 }
 

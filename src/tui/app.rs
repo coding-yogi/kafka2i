@@ -1,6 +1,7 @@
 use std::str::FromStr;
 use std::{char, sync::Arc, time::Duration};
 use crossbeam::channel::Receiver;
+use chrono::{DateTime};
 use log::{debug, error, info};
 use parking_lot::Mutex;
 use rdkafka::{consumer::ConsumerContext, ClientContext};
@@ -53,7 +54,10 @@ enum Command {
 // AppErr
 const ERR_INVALID_CMD: &str = "err:InvalidCMD";
 const ERR_INVALID_OFFSET: &str = "err:InvalidOffset";
+const ERR_INVALID_TIMESTAMP: &str = "err:InvalidTimestamp";
 const ERR_NO_SELECTED_PARTITION: &str = "err:NoSelectedPartition";
+const ERR_FETCHING_OFFSET: &str = "err:FetchingOffset";
+const ERR_OFFSET_NOT_FOUND: &str = "err:OffsetNotFound";
 
 const UNINITIALISED_OFFSET: i64 = -999;
 
@@ -490,7 +494,7 @@ where T: ClientContext + ConsumerContext {
        match command {
            Command::Invalid => return,
            Command::Offset => self.handle_offset_command(arg),
-           Command::Timestamp => () // self.handle_timestamp_command(arg),
+           Command::Timestamp => self.handle_timestamp_command(arg),
        }
     }
 }
@@ -498,7 +502,7 @@ where T: ClientContext + ConsumerContext {
 // Handle all commands
 impl <T> App<'_, T>
 where T: ClientContext + ConsumerContext {
-    // Get the kafka consumer
+    // Handle offset command
     pub fn handle_offset_command(&mut self, offset_str: &str)  {
         //check if offset is a number
         let offset = match offset_str.parse::<i64>() {
@@ -520,6 +524,57 @@ where T: ClientContext + ConsumerContext {
         };
 
         self.fetch_message(&selected_partition, offset);
+    }
+
+    // handle timestamp command
+    pub fn handle_timestamp_command(&mut self, timestamp_str: &str)  {
+        //check if timestamp is a number
+        let _timestamp = match timestamp_str.parse::<i64>() {
+            Ok(t) => t,
+            Err(_) => {
+                self.layout.lock().footer_layout.set_value(ERR_INVALID_TIMESTAMP);
+                error!("invalid timestamp {}. timestamp should be a number representing an epoch in milliseconds", timestamp_str);
+                return;
+            }
+        };
+
+        // check if it is a valid epoch timestamp
+        if DateTime::from_timestamp_millis(_timestamp) == None {
+            self.layout.lock().footer_layout.set_value(ERR_INVALID_TIMESTAMP);
+            error!("invalid timestamp {}. timestamp should be an epoch in milliseconds", timestamp_str);
+            return;
+        }
+
+        // fetch offset for a given timestamp
+        let selected_partition = match self.get_selected_item_for_list(PARTITIONS_LIST) {
+            Some(p) => p,
+            None => {
+            self.layout.lock().footer_layout.set_value(ERR_NO_SELECTED_PARTITION);
+            error!("no partition selected to seek");
+            return;
+            }
+        };
+
+        // get the offset based on the timestamp for a given topic and partition
+        if let Some((topic_name, partition_id)) = get_topic_and_parition_id(&selected_partition) {
+            let offset = match self.kafka_consumer.lock().offsets_for_timestamp(topic_name, partition_id, _timestamp) {
+                Ok(offset) => match offset {
+                    Some(o) => o,
+                    None => {
+                        self.layout.lock().footer_layout.set_value(ERR_OFFSET_NOT_FOUND);
+                        error!("no offset found for topic {} & partition {} for timestamp {}", topic_name, partition_id, _timestamp);
+                        return;
+                    }
+                },
+                Err(err) => {
+                    self.layout.lock().footer_layout.set_value(ERR_FETCHING_OFFSET);
+                    error!("error fetching offset for timestamp {}: {}", _timestamp, err);
+                    return;
+                }
+            };
+
+            self.fetch_message(&selected_partition, offset);
+        }
     }
 
     // Handle offset navigation
@@ -551,12 +606,6 @@ where T: ClientContext + ConsumerContext {
         let current_state = self.layout.lock().show_help;
         self.layout.lock().show_help = !current_state;
     }
-}
-
-// Handle help command
-impl <T> App<'_, T>
-where T: ClientContext + ConsumerContext {
-    
 }
 
 // Generate broker deatils

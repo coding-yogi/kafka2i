@@ -1,8 +1,6 @@
 use ratatui::{layout::{Constraint, Layout, Rect}, style::Stylize, text::{Line, Span, Text}, widgets::{Clear, ScrollbarOrientation}, Frame};
 use crate::kafka::metadata::Metadata;
 
-use::log::debug;
-
 use super::widgets::{AppWidget, Direction, InputEvent, UIInput, UIList, UIParagraph, UIParagraphWithScrollbar, UITable};
 
 const APP_NAME: &str = "Kafka2i - TUI for Kafka";
