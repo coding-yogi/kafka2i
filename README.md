@@ -5,6 +5,8 @@ Based on
 - [Ratatui](https://github.com/ratatui/ratatui): Library for TUI
 - [RustRDKafka](https://github.com/fede1024/rust-rdkafka): Client Library for Kafka
 
+![Alt Text](./kafka2i.gif)
+
 ## How to use
 The simplest way to use the tool is to invoke it by providing the Kafka bootstrap URL
 ```
@@ -55,8 +57,8 @@ H          - Open/Close Help Window
 ## Commands
 Commands can be entered when in edit mode. Press `:` to enter edit mode
 
-`offset!<number>`- Provide the offset to retrieve the message from that offset. E.g. offset!7656  
-`ts!<epoch>`      - Provide a unix timestamp to retrieve the message. E.g. 
+`offset!<number>`- Provide the offset to retrieve the message from that offset. E.g. `offset!7656`
+`ts!<epoch_in_ms>`      - Provide a unix timestamp to retrieve the message. E.g. `ts!1760597487571`
 
 
 ## Logs
