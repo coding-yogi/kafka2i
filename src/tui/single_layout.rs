@@ -93,10 +93,13 @@ pub struct HeaderLayout<'a> {
 
 impl <'a> HeaderLayout<'a> {
     pub fn new() -> HeaderLayout<'a> {
+        let crab = emojis::get_by_shortcode("crab").unwrap();
+        let heart = emojis::get_by_shortcode("heart").unwrap();
+
         HeaderLayout{
             title: UIParagraph::new("".to_string(), Text::from(vec![
-                Span::from(APP_NAME).bold().green().into_centered_line(),
-                Span::from(APP_VERSION).gray().into_centered_line()
+                Span::from(format!("{} (v{})", APP_NAME, APP_VERSION)).bold().green().into_centered_line(),
+                Span::from(format!("Made in {} with {}", crab.as_str(), heart.as_str())).bold().gray().into_centered_line()
             ]))
         }
     }
