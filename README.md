@@ -67,8 +67,8 @@ H          - Open/Close Help Window
 ## Commands
 Commands can be entered when in edit mode. Press `:` to enter edit mode
 
-`offset!<number>`- Provide the offset to retrieve the message from that offset. E.g. `offset!7656`  
-`ts!<epoch_in_ms>`      - Provide a unix timestamp to retrieve the message. E.g. `ts!1760597487571`
+`offset!<number>`- Setting the offset for a selected parition to retrieve message at the set offset. E.g. `offset!7656`  
+`ts!<epoch_in_ms>` - Setting the epoch timestamp in millis to retrieve the first message at the set timestamp. E.g. `ts!1760597487571`
 
 
 ## Logs
