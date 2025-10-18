@@ -10,4 +10,3 @@ pub fn initiate() -> LoggerHandle {
 
     _logger
 }
-

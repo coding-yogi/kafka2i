@@ -16,7 +16,6 @@ use crate::config::Config;
 use crate::tui::events::TuiEvent;
 
 mod kafka;
-mod cmd;
 mod config;
 mod tui;
 mod logger;

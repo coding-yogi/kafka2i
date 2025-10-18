@@ -10,22 +10,32 @@ Based on
 ## How to use
 The simplest way to use the tool is to invoke it by providing the Kafka bootstrap URL
 ```
-./krust --bootstrap-servers <bootstrap_endpoint>
+./kafka2i --bootstrap-servers <bootstrap_endpoint>
 ```
 
 ## Supported Commandline Args
-| Argument           | Required | Default | Description |
-|--------------------|----------|---------|-------------|
-|--bootstrap-servers | True     |         |Kafka boostrap server/s endpoint |
-|--protocol          | False    | SSL     | Can be one of `PLAINTEXT`, `SSL`, `SASL_SSL`, `SASL_PLAINTEXT` |
-|--log-level         | False    | info    | Can be one of `info`, `debug`, `error` |
-|--group-id          | False    |cg.krust | Consumer group id |
-|--ssl-ca-location   | False    |         | If not provided, certificate validation will be skipped at client side |
-
+| Argument                         | Required | Default  | Description |
+|----------------------------------|----------|----------|-------------|
+|--bootstrap-servers               | True     |          | Kafka boostrap server/s endpoint |
+|--protocol                        | False    | SSL      | Should be one of `PLAINTEXT`, `SSL`, `SASL_SSL`, `SASL_PLAINTEXT` |
+|--log-level                       | False    | info     | Should be one of `info`, `debug`, `error` |
+|--group-id                        | False    | cg.krust | Consumer group id |
+|--ssl-ca-location                 | False    |          | CA for server certificate validation |
+|--ssl-client-key-location         | False    |          | Client private key location |
+|--ssl-client-certificate-location | False    |          | Client certificate location |
+|--disable-ssl-cert-vertification  | False    | false    | Disabling server cert validation |
+|--sasl-mechanism                  | False    |          | Should be one of `PLAIN`, `OAUTHBEARER` |
+|--sasl-username                   | False    |          | SASL username, required if sasl mechanism is `PLAIN` |
+|--sasl-password                   | False    |          | SASL Password, required if sasl mechanism is `PLAIN` |
+|--oauth-token-endpoint            | False    |          | Token endpoint, required if sasl mechanism is `OAUTHBEARER` |
+|--oauth-client-id                 | False    |          | ClientID, required if sasl mechanism is `OAUTHBEARER` |
+|--oauth-client-secret             | False    |          | ClientSecret, required if sasl mechanism is `OAUTHBEARER` |
+|--oauth-scope                     | False    |          | OAuth Scope which with token is to be retrieved  |
+|--https-ca-location               | False    |          | CA for server certificate validation of token endpoint |
 
 To quick check all supported arguments, you can always run
 ```
-./krust --help
+./kafka2i --help
 ```
 
 ## Features
