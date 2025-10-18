@@ -2,8 +2,8 @@
 
 A terminal UI for Kafka built in Rust.  
 Based on 
-- [Ratatui](https://github.com/ratatui/ratatui): Library for TUI
-- [RustRDKafka](https://github.com/fede1024/rust-rdkafka): Client Library for Kafka
+- [ratatui](https://github.com/ratatui/ratatui): TUI Library
+- [rust-rdkafka](https://github.com/fede1024/rust-rdkafka): Rust wrapper over rdkafka
 
 ![Alt Text](./kafka2i.gif)
 
@@ -44,10 +44,10 @@ Tool starts in the consumer mode by default. Consumer is created under the consu
 Consumer does not subscribe directly to any of the topics but assigns the required paritions when necessary
 
 - Viewing metadata related to Brokers, Consumer Groups, Topics and Paritions
-- Viewing messages for a given parition. Currently supports messages in plain test like `JSON`
-- Navigating to messages at previous or next offsets with Left/Right Keys
+- Viewing messages for a given parition. Currently supports only messages in plain text like `JSON`
+- Navigating to messages at previous or next offsets with Left/Right keys
 - Seeking message at a specific offset or a timestamp
-- Displayed message is by default copied to the clipboard for it's usage oustide of TUI
+- Displayed message is by default copied to the clipboard for its usage oustide of TUI
 
 ### Producer Mode
 - Not yet supported
