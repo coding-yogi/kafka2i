@@ -8,9 +8,7 @@ use rdkafka::{
     }, error::KafkaError, metadata::Metadata as KafkaMetadata, types::RDKafkaErrorCode, util::Timeout, ClientConfig, ClientContext, Message, Offset, Statistics, TopicPartitionList
 };
 
-use crate::kafka::metadata::{Metadata, Topic};
-
-use super::metadata::ConsumerGroup;
+use crate::kafka::metadata::{Metadata,ConsumerGroup};
 
 pub type Result<T> = std::result::Result<T, ConsumerError>;
 
@@ -83,7 +81,6 @@ where T: ClientContext + ConsumerContext {
 impl <T> Consumer<T> 
 where T: ClientContext + ConsumerContext 
 {
-
     // New Consumer
     pub fn new(config: &ClientConfig, context: T) -> Result<Consumer<T>> {
         // Base Consumer
@@ -137,22 +134,6 @@ where T: ClientContext + ConsumerContext
         Ok(watermarks)
     }
 
-    pub fn fetch_offset(&self, topic: &str, partition: i32) -> Result<i64> {
-        debug!("fetching offset for topic {}/{}", topic, partition);
-        let mut tpl = TopicPartitionList::new();
-        tpl.add_partition(topic, partition);
-
-        tpl = self.base_consumer.committed_offsets(tpl, self.default_timeout_in_secs)?;
-        if let Some(tp) = tpl.elements().first() {
-            if let Some(raw_offset) = tp.offset().to_raw() {
-                return Ok(raw_offset);
-            }
-        }
-
-        log::error!("failed to retrieve offset for topic {} & partition {}", topic, partition);
-        Err(KafkaError::OffsetFetch(RDKafkaErrorCode::Fail).into())
-    }
-
     // Update stats
     pub fn update_stats(&mut self, stats: Statistics) {
         self.stats = stats
@@ -169,6 +150,7 @@ where T: ClientContext + ConsumerContext
 
         // retry consume upto 3 times with a backoff of 100ms when error if error is Broker transport failure
         let mut retries = 3;
+        let sleep_duration_in_ms = 100;
         loop {
             match self.base_consumer.poll(timeout) {
                 Some(Ok(msg)) => return Ok(Some(KafkaMessage::new(&msg))),
@@ -178,7 +160,7 @@ where T: ClientContext + ConsumerContext
                         if retries > 0 {
                             log::warn!("consume resulted in broker transport failure, retrying ...");
                             retries -= 1;
-                            std::thread::sleep(Duration::from_millis(100));
+                            std::thread::sleep(Duration::from_millis(sleep_duration_in_ms));
                             continue;
                         } else {
                             log::error!("consume resulted in broker transport failure, failing consume");
@@ -193,10 +175,10 @@ where T: ClientContext + ConsumerContext
                     if retries > 0 && with_retries {
                         log::warn!("no message received, retrying ...");
                         retries -= 1;
-                        std::thread::sleep(Duration::from_millis(100));
+                        std::thread::sleep(Duration::from_millis(sleep_duration_in_ms));
                         continue;
                     } else {
-                        log::debug!("no message received");
+                        debug!("no message received");
                         break;
                     }
                 },
@@ -207,33 +189,10 @@ where T: ClientContext + ConsumerContext
         Ok(None)
     }
 
-    // subscribe to a topic
-    pub fn subscribe(&self, topics: &[&str]) -> Result<()>{
-        self.base_consumer.subscribe(topics)?;
-        Ok(())
-    }
-
-    // unsubscribe
-    pub fn unsubscribe(&self) -> Result<()>{
-        self.base_consumer.unsubscribe();
-        Ok(())
-    }
-
     // Assign
     pub fn assign(&self, topic: &str, partition: i32) -> Result<()>{
         let mut tpl = TopicPartitionList::new();
         tpl.add_partition_offset(topic, partition, Offset::End)?;
-        let _ = self.base_consumer.assign(&tpl)?;
-        Ok(())
-    }
-
-    pub fn assign_all_partitions(&self, topic: &Topic) -> Result<()>{
-        debug!("assigning all partitions of topic {}", topic.name());
-        let mut tpl = TopicPartitionList::new();
-        for p in topic.partitions() {
-            tpl.add_partition_offset(topic.name(), p.id(), Offset::End)?;
-        }
-
         let _ = self.base_consumer.assign(&tpl)?;
         Ok(())
     }
@@ -263,15 +222,6 @@ where T: ClientContext + ConsumerContext
                     }
                 }
             }
-        }
-
-        Ok(())
-    }
-
-    // Seek for all topics in the partition
-    pub fn seek_for_all_partitions(&self, topic: &Topic, offset: i64) -> Result<()>{
-        for p in topic.partitions() {
-            let _ = self.seek(topic.name(), p.id(), offset)?;
         }
 
         Ok(())
@@ -331,18 +281,13 @@ impl KafkaMessage {
         }
     }
 
+    // payload or default
     pub fn payload_or_default(&self) -> String {
-        match &self.payload {
-            Some(p) => p.clone(),
-            None => "No Payload".to_string(),
-        }
+        return self.payload.clone().unwrap_or("No Payload".to_string())
     }
 
+    // timestamp or default
     pub fn timestamp_or_default(&self) -> String {
-        match &self.timestamp {
-            Some(t) => t.to_string(),
-            None => "N/A".to_string(),
-        }
+        return self.timestamp.unwrap_or(0).to_string();
     }
-    
 }

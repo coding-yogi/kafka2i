@@ -287,7 +287,6 @@ impl From<&GroupInfo> for ConsumerGroup {
     }
 }
 
-
 #[derive(Debug, Clone)]
 pub struct ConsumerGroupMember {
     id: String,

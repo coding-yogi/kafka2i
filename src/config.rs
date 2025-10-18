@@ -1,21 +1,40 @@
 use std::{error::Error, fmt::Display};
 
 use clap::{Parser, ValueEnum};
+use log::info;
 use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
 use strum::{Display};
 
-// config params
+// connection config params
 const BOOTSTRAP_SERVERS: &str = "bootstrap.servers";
 const GROUP_ID: &str = "group.id";
-const SESSION_TIMEOUT_MS: &str = "session.timeout.ms";
-const ENABLE_AUTO_COMMIT: &str = "enable.auto.commit";
 const SOCKET_KEEP_ALIVE: &str = "socket.keepalive.enable";
 const STATS_INTERVAL_MS: &str = "statistics.interval.ms";
 const SECURITY_PROTOCOL: &str = "security.protocol";
+
+// SSL config
+const SSL_KEY_LOCATION: &str = "ssl.key.location";
+const SSL_CERT_LOCATION: &str = "ss.certificate.location";
 const CA_CERT_LOCATION: &str = "ssl.ca.location";
 const ENABLE_CERT_VALIDATION: &str = "enable.ssl.certificate.verification";
+
+// SASL mechanism
+const SASL_MECHANISM: &str = "sasl.mechanism";
+
+// SASL plain confif
+const SASL_USERNAME: &str = "sasl.username";
+const SASL_PASSWORD: &str = "sasl.password";
+
+// SASL OAuth config
+const OAUTH_CLIENT_ID: &str = "sasl.oauthbearer.client.credentials.client.id";
+const OAUTH_CLIENT_SECRET: &str = "sasl.oauthbearer.client.credentials.client.secret";
+const OAUTH_SCOPE: &str = "sasl.oauthbearer.scope";
+const OAUTH_TOKEN_ENDPOINT: &str = "sasl.oauthbearer.token.endpoint.url";
+const HTTPS_CA_LOCATION: &str = "https.ca.location";
+
+
+// Log config
 const DEBUG: &str = "debug";
-const AUTO_OFFSET_RESET: &str = "auto.offset.reset";
 
 const DEFAULT_GROUP_ID: &str = "cg.krust";
 
@@ -43,6 +62,17 @@ pub enum Protocol {
     #[strum(serialize = "SASL_PLAINTEXT")]
     #[value(name = "SASL_PLAINTEXT")]
     SaslPlainText,
+}
+
+#[derive(Debug, Display, Clone, ValueEnum)]
+pub enum SaslMechanism {
+    #[strum(serialize = "PLAIN")]
+    #[value(name = "PLAIN")]
+    Plain,
+
+    #[strum(serialize = "OAUTHBEARER")]
+    #[value(name = "OAUTHBEARER")]
+    OauthBearer,
 }
 
 impl Into<RDKafkaLogLevel> for LogLevel {
@@ -86,7 +116,7 @@ impl Error for ConfigError {
 
 /// TUI for kafka written in Rust
 #[derive(Parser, Debug)]
-#[command(name = "krust")]
+#[command(name = "kafka2i")]
 #[command(about = "TUI for kafka written in Rust", long_about = None)]
 pub struct Config {
     /// Log level to be set for kafka client
@@ -105,9 +135,53 @@ pub struct Config {
     #[arg(short, long, default_value_t = Protocol::Ssl)]
     pub protocol: Protocol,
 
-    /// Full path to CA location for validating SSL Certificate, If not set, certificate validation will be ignored
-    #[arg(short, long, default_value = "")]
-    pub ssl_ca_location: String,
+    /// Full path to CA location for validating SSL certificate
+    #[arg(long)]
+    pub ssl_ca_location: Option<String>,
+
+    /// SSL client key
+    #[arg(long)]
+    pub ssl_client_key_location: Option<String>,
+
+    /// SSL client certificate
+    #[arg(long)]
+    pub ssl_client_certificate_location: Option<String>,
+
+    /// Disable server certificate vertification
+    #[arg(short, long)]
+    pub disable_ssl_cert_vertification: bool,
+
+    // SASL mechanism
+    #[arg(long)]
+    pub sasl_mechanism: Option<SaslMechanism>,
+
+    /// SSL username
+    #[arg(long)]
+    pub sasl_username: Option<String>,
+
+    /// SSL password
+    #[arg(long)]
+    pub sasl_password: Option<String>,
+
+    /// OAuth token endpoint
+    #[arg(long)]
+    pub oauth_token_endpoint: Option<String>,
+
+    /// OAuth client id
+    #[arg(long)]
+    pub oauth_client_id: Option<String>,
+
+    /// OAuth client secret
+    #[arg(long)]
+    pub oauth_client_secret: Option<String>,
+
+    /// OAuth scope
+    #[arg(long)]
+    pub oauth_scope: Option<String>,
+
+    /// Https CA location, will be used to validate server cerification for token endpoint
+    #[arg(long)]
+    pub https_ca_location: Option<String>,
 }
 
 impl TryInto<ClientConfig> for Config {
@@ -141,23 +215,67 @@ impl TryInto<ClientConfig> for Config {
         // handle protocol
         client_config.set(SECURITY_PROTOCOL.to_string(), self.protocol.to_string());
 
+        // handle SSL config
         match self.protocol {
-            Protocol::Ssl => {
-                if self.ssl_ca_location != "" {
-                    client_config.set(CA_CERT_LOCATION, self.ssl_ca_location);
+            Protocol::Ssl | Protocol::SaslSsl => {
+                if self.ssl_ca_location != None {
+                    client_config.set(CA_CERT_LOCATION, self.ssl_ca_location.unwrap());
                 } else {
-                    // Disable the cert validation if not cert location is found
+                    info!("ssl.ca.location is not provided, client will fall back to default ca location");
+                }
+
+                // check if both client key & certificate is provided
+                if self.ssl_client_key_location != None && self.ssl_client_certificate_location != None {
+                    client_config.set(SSL_KEY_LOCATION, self.ssl_client_key_location.unwrap());
+                    client_config.set(SSL_CERT_LOCATION, self.ssl_client_certificate_location.unwrap());
+                } else {
+                    info!("either of client key, client cert or both are not provided, wil continue without using both")
+                }
+
+                // check is we need to disable cert verification
+                if self.disable_ssl_cert_vertification {
                     client_config.set(ENABLE_CERT_VALIDATION, "false");
                 }
             },
-            Protocol::SaslSsl => {
+            _ => (),
+        }
 
-            },
+        // handle SASL config
+        if let Some(sasl_mechanism) = self.sasl_mechanism {
+            client_config.set(SASL_MECHANISM, sasl_mechanism.to_string());
 
-            Protocol::SaslPlainText => {
+            match sasl_mechanism {
+                SaslMechanism::Plain => {
+                    // check if both username and password is provided
+                    if self.sasl_username == None || self.sasl_password == None {
+                        return Err(ConfigError::new("username or password cannot be empty when using SASL_PLAIN mechanism"));
+                    }
 
-            },
-            Protocol::PlainText => (),
+                    client_config.set(SASL_USERNAME, self.sasl_username.unwrap());
+                    client_config.set(SASL_PASSWORD, self.sasl_password.unwrap());
+                },
+
+                SaslMechanism::OauthBearer => {
+                    // check if the token endpoint, client id and secret is provided
+                    if self.oauth_token_endpoint == None || self.oauth_client_id == None || self.oauth_client_secret == None {
+                        return Err(ConfigError::new("token endpoint, client id and client secret cannot be empty while using SASL_OAUTHBEARER mechanism"));
+                    }
+
+                    client_config.set(OAUTH_TOKEN_ENDPOINT, self.oauth_token_endpoint.unwrap());
+                    client_config.set(OAUTH_CLIENT_ID, self.oauth_client_id.unwrap());
+                    client_config.set(OAUTH_CLIENT_SECRET, self.oauth_client_secret.unwrap());
+
+                    // set scope if provided
+                    if let Some(scope) = self.oauth_scope  {
+                        client_config.set(OAUTH_SCOPE, scope);
+                    }
+
+                    // check if https ca is set
+                    if let Some(https_ca_location) = self.https_ca_location {
+                        client_config.set(HTTPS_CA_LOCATION, https_ca_location);
+                    }
+                }
+            }
         }
 
         Ok(client_config)
