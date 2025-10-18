@@ -61,7 +61,7 @@ N          - Scroll up the message pane
 : (colon)  - Enter edit mode  
 LEFT       - Move to the previous offset of the selected parition  
 RIGHT      - Move to the next offset of the selected parition  
-H          - Open/Close Help Window  
+H          - Open/Close help window  
 ```
 
 ## Commands

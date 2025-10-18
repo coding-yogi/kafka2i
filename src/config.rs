@@ -156,23 +156,25 @@ pub struct Config {
     pub sasl_mechanism: Option<SaslMechanism>,
 
     /// SSL username
-    #[arg(long)]
+    #[arg(long, required_if_eq("sasl_mechanism", "PLAIN"))]
     pub sasl_username: Option<String>,
 
     /// SSL password
-    #[arg(long)]
+    #[arg(long, required_if_eq("sasl_mechanism", "PLAIN"))]
     pub sasl_password: Option<String>,
 
     /// OAuth token endpoint
-    #[arg(long)]
+    #[arg(long, required_if_eq("sasl_mechanism", "OAUTHBEARER"))]
     pub oauth_token_endpoint: Option<String>,
 
     /// OAuth client id
     #[arg(long)]
+    #[arg(long, required_if_eq("sasl_mechanism", "OAUTHBEARER"))]
     pub oauth_client_id: Option<String>,
 
     /// OAuth client secret
     #[arg(long)]
+    #[arg(long, required_if_eq("sasl_mechanism", "OAUTHBEARER"))]
     pub oauth_client_secret: Option<String>,
 
     /// OAuth scope
@@ -248,7 +250,7 @@ impl TryInto<ClientConfig> for Config {
                 SaslMechanism::Plain => {
                     // check if both username and password is provided
                     if self.sasl_username == None || self.sasl_password == None {
-                        return Err(ConfigError::new("username or password cannot be empty when using SASL_PLAIN mechanism"));
+                        return Err(ConfigError::new("username and password must be set while using SASL_PLAIN mechanism"));
                     }
 
                     client_config.set(SASL_USERNAME, self.sasl_username.unwrap());
@@ -258,7 +260,7 @@ impl TryInto<ClientConfig> for Config {
                 SaslMechanism::OauthBearer => {
                     // check if the token endpoint, client id and secret is provided
                     if self.oauth_token_endpoint == None || self.oauth_client_id == None || self.oauth_client_secret == None {
-                        return Err(ConfigError::new("token endpoint, client id and client secret cannot be empty while using SASL_OAUTHBEARER mechanism"));
+                        return Err(ConfigError::new("token endpoint, client id & client secret must be set while using SASL_OAUTHBEARER mechanism"));
                     }
 
                     client_config.set(OAUTH_TOKEN_ENDPOINT, self.oauth_token_endpoint.unwrap());
