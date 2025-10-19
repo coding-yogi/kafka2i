@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     log::debug!("creating new kafka consumer to consume messages");
     let message_consumer = Arc::new(Mutex::new(Consumer::new(&client_config, DefaultContext).unwrap()));
 
-    log::debug!("fetching metadata for first time");
+    log::debug!("fetching metadata for the first time");
     let metadata = message_consumer.lock().fetch_metadata()?;
     let consumer_groups = message_consumer.lock().fetch_groups()?;
     message_consumer.lock().update_metadata(metadata, consumer_groups);

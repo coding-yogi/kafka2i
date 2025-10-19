@@ -99,7 +99,7 @@ impl <'a> HeaderLayout<'a> {
         HeaderLayout{
             title: UIParagraph::new("".to_string(), Text::from(vec![
                 Span::from(format!("{} (v{})", APP_NAME, APP_VERSION)).bold().green().into_centered_line(),
-                Span::from(format!("Made in {} with {}", crab.as_str(), heart.as_str())).bold().gray().into_centered_line()
+                Span::from(format!("Built in {} with {}", crab.as_str(), heart.as_str())).bold().gray().into_centered_line()
             ]))
         }
     }

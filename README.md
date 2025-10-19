@@ -52,6 +52,9 @@ Consumer does not subscribe directly to any of the topics but assigns the requir
 ### Producer Mode
 - Not yet supported
 
+### Admin Mode
+- No plans to support admin mode in near future
+
 ## Key Bindings  
 ```
 TAB        - Navigate between brokers, consumergroups, topics & paritions lists  
