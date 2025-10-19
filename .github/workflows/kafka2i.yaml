@@ -22,6 +22,9 @@ jobs:
     - name: muscl-tools
       run: sudo apt-get update && sudo apt-get install -y musl-tools
     - name: build
+      env:
+        # required for cross-compiling kerberos lib
+        krb5_cv_attr_constructor_destructor: yes
       run: cargo build --release --target x86_64-unknown-linux-musl
     - name: artifact
       uses: actions/upload-artifact@v4
