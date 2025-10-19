@@ -10,35 +10,9 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Ubuntu 23 - glibc 2.38/2.39
-  UbuntuLatest:
-    runs-on: ubuntu-latest
-    steps:
-    - name: checkout
-      uses: actions/checkout@v4
-    - name: build
-      run: cargo build --release
-    - name: artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: kafka2i-linux-x86_64
-        path: target/release/kafka2i
   # Ubuntu 22 - glibc 2.35
-  Ubuntu22:
+  Ubuntu:
     runs-on: ubuntu-22.04
-    steps:
-    - name: checkout
-      uses: actions/checkout@v4
-    - name: build
-      run: cargo build --release
-    - name: artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: kafka2i-linux-x86_64
-        path: target/release/kafka2i
-  # Ubuntu 20 - glibc 2.31
-  Ubuntu20:
-    runs-on: ubuntu-20.04
     steps:
     - name: checkout
       uses: actions/checkout@v4
