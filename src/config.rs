@@ -157,11 +157,11 @@ pub struct Config {
     #[arg(long)]
     pub sasl_mechanism: Option<SaslMechanism>,
 
-    /// SSL username
+    /// SASL username
     #[arg(long, required_if_eq("sasl_mechanism", "PLAIN"))]
     pub sasl_username: Option<String>,
 
-    /// SSL password
+    /// SASL password
     #[arg(long, required_if_eq("sasl_mechanism", "PLAIN"))]
     pub sasl_password: Option<String>,
 
@@ -183,7 +183,7 @@ pub struct Config {
     #[arg(long)]
     pub oauth_scope: Option<String>,
 
-    /// Https CA location, will be used to validate server cerification for token endpoint
+    /// Https CA location will be used to validate server cerification for the token endpoint
     #[arg(long)]
     pub https_ca_location: Option<String>,
 }

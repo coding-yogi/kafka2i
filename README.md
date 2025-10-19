@@ -70,6 +70,12 @@ Commands can be entered when in edit mode. Press `:` to enter edit mode
 `offset!<number>`- Setting the offset for a selected parition to retrieve message at the set offset. E.g. `offset!7656`  
 `ts!<epoch_in_ms>` - Setting the epoch timestamp in millis to retrieve the first message at the set timestamp. E.g. `ts!1760597487571`
 
-
 ## Logs
 A new logfile is generated everytime the tool runs and the file is stored next to the binary
+
+## Troubleshooting
+To debug connectivity or other issues, enable debug logs by setting appropriate log level.
+Same log-level will be set for `rdkafka`
+```
+./kafka2i -b <bootstrap-servers> -log-level debug
+```
