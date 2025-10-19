@@ -16,9 +16,19 @@ jobs:
     - uses: actions/checkout@v4
     - name: build
       run: cargo build --release
+    - name: artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: kafka2i-linux-x86_64
+        path: target/release/kafka2i
   MacOs:
     runs-on: macos-latest
     steps:
     - uses: actions/checkout@v4
     - name: build
       run: cargo build --release
+    - name: artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: kafka2i-macos-arm64
+        path: target/release/kafka2i
