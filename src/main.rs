@@ -11,7 +11,7 @@ use ratatui::{prelude::CrosstermBackend, Terminal};
 use tokio::time;
 use tui::{app::App, app::AppEvent, events};
 
-use crate::kafka::{consumer::{Consumer, DefaultContext}};
+use crate::{config::LogLevel, kafka::consumer::{Consumer, DefaultContext}};
 use crate::config::Config;
 use crate::tui::events::TuiEvent;
 
@@ -22,10 +22,13 @@ mod logger;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let _logger = logger::initiate();
+    let logger = logger::initiate();
     
     // Parsing config from command line args
     let config = Config::parse();
+    logger.parse_new_spec(&config.log_level.to_string())?;
+
+    // generate client config
     let client_config: ClientConfig = config.try_into()?;
 
     // Setup Kafka consumer to consume messages

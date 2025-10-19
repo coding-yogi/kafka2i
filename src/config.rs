@@ -32,16 +32,18 @@ const OAUTH_SCOPE: &str = "sasl.oauthbearer.scope";
 const OAUTH_TOKEN_ENDPOINT: &str = "sasl.oauthbearer.token.endpoint.url";
 const HTTPS_CA_LOCATION: &str = "https.ca.location";
 
-
 // Log config
 const DEBUG: &str = "debug";
 
 const DEFAULT_GROUP_ID: &str = "cg.krust";
 
-#[derive(Debug, Clone, ValueEnum, PartialEq, Copy)]
+#[derive(Debug, Display, Clone, ValueEnum, PartialEq, Copy)]
 pub enum LogLevel {
+    #[strum(serialize = "debug")]
     Debug,
+    #[strum(serialize = "info")]
     Info,
+    #[strum(serialize = "error")]
     Error,
 }
 

@@ -44,7 +44,6 @@ impl ClientContext for DefaultContext {
       ()
     }
 }
-
 pub struct StatsContext {
    stats_sender: Sender<Statistics> 
 }
