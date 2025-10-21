@@ -13,6 +13,18 @@ The simplest way to use the tool is to invoke it by providing the Kafka bootstra
 ./kafka2i --bootstrap-servers <bootstrap_endpoint>
 ```
 
+To use with OAuth
+```
+./kafka2i --bootstrap-servers <bootstrap_endpoint> \
+--protocol=SASL_SSL \
+--sasl-mechanism=OAUTHBEARER \
+--oauth-token-endpoint=<token_endpoint> \
+--oauth-client-id=<client_id> \
+--oauth-client-secret=<client_secret> \
+--oauth-scope=<scopes>
+```
+
+
 ## Supported Commandline Args
 | Argument                         | Required | Default  | Description |
 |----------------------------------|----------|----------|-------------|
@@ -48,6 +60,7 @@ Consumer does not subscribe directly to any of the topics but assigns the requir
 - Navigating to messages at previous or next offsets with Left/Right keys
 - Seeking message at a specific offset or a timestamp
 - Displayed message is by default copied to the clipboard for its usage oustide of TUI
+- Supports OAuth based authentication
 
 ### Producer Mode
 - Not yet supported
