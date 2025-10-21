@@ -18,9 +18,11 @@ heck = "0.5.0"
 log = "0.4.28"
 parking_lot = "0.12.2"
 ratatui = { version = "0.28.0", features = ["all-widgets"] }
-rdkafka = { version = "0.38.0", features = ["cmake-build", "curl-static", "libz-static", "ssl-vendored", "sasl", "gssapi-vendored"] }
+rdkafka = { version = "0.38.0", features = ["cmake-build", "curl", "libz", "libz-static", "ssl", "sasl", "gssapi", "gssapi-vendored"] }
+reqwest = { version = "0.12.24", features = ["blocking", "json"] }
 strum = { version = "0.27.2", features = ["derive"] }
 tokio = { version = "1.36.0", features = ["full"] }
 tokio-util = "0.7.9"
 tui-input = "0.8.0"
+serde = "1.0.228"
 serde_json = "1.0"

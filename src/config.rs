@@ -26,8 +26,9 @@ const SASL_USERNAME: &str = "sasl.username";
 const SASL_PASSWORD: &str = "sasl.password";
 
 // SASL OAuth config
-const OAUTH_CLIENT_ID: &str = "sasl.oauthbearer.client.credentials.client.id";
-const OAUTH_CLIENT_SECRET: &str = "sasl.oauthbearer.client.credentials.client.secret";
+const OAUTH_BEARER_METHOD: &str = "sasl.oauthbearer.method";
+const OAUTH_CLIENT_ID: &str = "sasl.oauthbearer.client.id";
+const OAUTH_CLIENT_SECRET: &str = "sasl.oauthbearer.client.secret";
 const OAUTH_SCOPE: &str = "sasl.oauthbearer.scope";
 const OAUTH_TOKEN_ENDPOINT: &str = "sasl.oauthbearer.token.endpoint.url";
 const HTTPS_CA_LOCATION: &str = "https.ca.location";
@@ -117,7 +118,7 @@ impl Error for ConfigError {
 }
 
 /// TUI for kafka written in Rust
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(name = "kafka2i")]
 #[command(about = "TUI for kafka written in Rust", long_about = None)]
 pub struct Config {
@@ -164,6 +165,10 @@ pub struct Config {
     /// SASL password
     #[arg(long, required_if_eq("sasl_mechanism", "PLAIN"))]
     pub sasl_password: Option<String>,
+
+    /// SASL OAuth bearer method
+    #[arg(short, long, default_value = "oidc")]
+    pub oauth_bearer_method: String,
 
     /// OAuth token endpoint
     #[arg(long, required_if_eq("sasl_mechanism", "OAUTHBEARER"))]
@@ -260,6 +265,8 @@ impl TryInto<ClientConfig> for Config {
                 },
 
                 SaslMechanism::OauthBearer => {
+                    client_config.set(OAUTH_BEARER_METHOD, self.oauth_bearer_method);
+
                     // check if the token endpoint, client id and secret is provided
                     if self.oauth_token_endpoint == None || self.oauth_client_id == None || self.oauth_client_secret == None {
                         return Err(ConfigError::new("token endpoint, client id & client secret must be set while using SASL_OAUTHBEARER mechanism"));

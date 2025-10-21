@@ -26,14 +26,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
     
     // Parsing config from command line args
     let config = Config::parse();
+    let config_clone = config.clone();
     logger.parse_new_spec(&config.log_level.to_string())?;
 
     // generate client config
     let client_config: ClientConfig = config.try_into()?;
 
+    let default_context = DefaultContext::new(config_clone);
+
     // Setup Kafka consumer to consume messages
     log::debug!("creating new kafka consumer to consume messages");
-    let message_consumer = Arc::new(Mutex::new(Consumer::new(&client_config, DefaultContext).unwrap()));
+    let message_consumer = Arc::new(Mutex::new(Consumer::new(&client_config, default_context).unwrap()));
 
     log::debug!("fetching metadata for the first time");
     let metadata = message_consumer.lock().fetch_metadata()?;

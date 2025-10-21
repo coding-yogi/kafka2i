@@ -2,13 +2,15 @@ use std::{ time::Duration, fmt::Display, error::Error};
 use crossbeam::channel::Sender;
 use log::debug;
 use rdkafka::{
-    config::FromClientConfigAndContext, consumer::{
+    client::OAuthToken, config::FromClientConfigAndContext, consumer::{
         base_consumer::BaseConsumer, 
         Consumer as KafkaConsumer, ConsumerContext, 
     }, error::KafkaError, metadata::Metadata as KafkaMetadata, types::RDKafkaErrorCode, util::Timeout, ClientConfig, ClientContext, Message, Offset, Statistics, TopicPartitionList
 };
+use reqwest::blocking::Client as http_client;
+use serde::Deserialize;
 
-use crate::kafka::metadata::{Metadata,ConsumerGroup};
+use crate::{config::Config, kafka::metadata::{ConsumerGroup, Metadata}};
 
 pub type Result<T> = std::result::Result<T, ConsumerError>;
 
@@ -33,16 +35,92 @@ impl From<KafkaError> for ConsumerError {
     }
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct DefaultContext;
+#[derive(Deserialize, Debug)]
+struct TokenResponse {
+    access_token: String,
+    expires_in: u64,
+    sub: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct DefaultContext {
+    config: Config
+}
+
+impl  DefaultContext {
+    pub fn new(config: Config) -> DefaultContext {
+        DefaultContext {
+            config: config
+        }
+    }
+}
 
 impl ConsumerContext for DefaultContext {}
 
 impl ClientContext for DefaultContext {
+    // required to override to enable token refresh
+    const ENABLE_REFRESH_OAUTH_TOKEN: bool = true;
+
     // Overriding stats as we do not wish to log the stats as part of the default implementatoion
     fn stats(&self, _statistics: rdkafka::Statistics) {
       ()
     }
+
+    // Overriding Oauth callback
+    fn generate_oauth_token(&self, _oauthbearer_config: Option<&str>) -> std::result::Result<OAuthToken, Box<dyn Error>> {
+        debug!("config received in oauth callback: {:?}", _oauthbearer_config);
+        if self.config.oauth_token_endpoint == None || self.config.oauth_client_id == None || self.config.oauth_client_secret == None {
+            return Err("token endpoint, client id & client secret must be provided".into());
+        }
+
+        // Set params
+        let mut params = vec![
+            ("grant_type", "client_credentials"),
+            ("client_id", self.config.oauth_client_id.as_ref().unwrap()),
+            ("client_secret", self.config.oauth_client_secret.as_ref().unwrap()),
+        ];
+
+        if let Some(scope) = &self.config.oauth_scope {
+            params.push(("scope", scope));
+        }
+
+        // https client builder
+        let mut http_client_builder = http_client::builder();
+
+        // check if the https ca location is provided
+        if let Some(ca_location) = &self.config.https_ca_location {
+            http_client_builder = http_client_builder
+                .add_root_certificate(
+                    reqwest::Certificate::from_pem(&std::fs::read(ca_location)?)?
+                );
+        }
+
+        // Make request
+        debug!("making request to oauth token endpoint");
+        let http_client = http_client_builder.build()?;
+        let response = http_client
+            .post(self.config.oauth_token_endpoint.as_ref().unwrap())
+            .form(&params)
+            .send()?
+            .error_for_status()?
+            .json::<TokenResponse>()?;
+ 
+        // Calculate expiry
+        let expiry= std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs() + response.expires_in;
+
+        // Build OAuthBearerToken for librdkafka
+        let token = OAuthToken{
+            token: response.access_token,
+            principal_name: response.sub.unwrap_or("".to_string()),
+            lifetime_ms: i64::try_from(expiry)?, // in milliseconds
+        };
+
+        debug!("returning generated token");
+        Ok(token)
+    }
+
 }
 pub struct StatsContext {
    stats_sender: Sender<Statistics> 
