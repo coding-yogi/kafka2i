@@ -1,6 +1,6 @@
 # Kafka2i - TUI for Kafka
 
-A terminal UI for Kafka built in Rust.  
+A terminal UI for Kafka built in Rust &#x1f980;.  
 Based on 
 - [ratatui](https://github.com/ratatui/ratatui): TUI Library
 - [rust-rdkafka](https://github.com/fede1024/rust-rdkafka): Rust wrapper over rdkafka
