@@ -55,10 +55,11 @@ jobs:
       with:
         name: kafka2i-macos-arm64 
         path: dist/
+    - name: print files
+      run: ls -lR dist/
     - name: create release
       id: create_release
       uses: softprops/action-gh-release@v2
-      run: ls -lR dist/
       with:
         tag_name: ${{ github.ref_name }}
         files: |
