@@ -45,15 +45,9 @@ jobs:
     permissions:
       contents: write
     steps:
-    - name: download ubuntu artifact
-      uses: actions/download-artifact@v4
+    - name: download all artifacts
+      uses: actions/download-artifact@v5
       with:
-        name: kafka2i-linux-x86_64
-        path: dist/
-    - name: download macos artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: kafka2i-macos-arm64 
         path: dist/
     - name: print files
       run: ls -lR dist/
