@@ -3,10 +3,9 @@ name: Kafka2i
 on:
   push:
     branches: [ "master" ]
+    tags: ['v*.*.*']
   pull_request:
     branches: [ "master" ]
-  tags:
-    - 'v*.*.*'
 
 env:
   CARGO_TERM_COLOR: always
