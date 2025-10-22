@@ -58,10 +58,11 @@ jobs:
     - name: create release
       id: create_release
       uses: softprops/action-gh-release@v2
+      run: ls -lR dist/
       with:
         tag_name: ${{ github.ref_name }}
         files: |
-          dist/kafka2i-linux-x86_64.zip
-          dist/kafka2i-macos-arm64.zip
+          dist/kafka2i-linux-x86_64
+          dist/kafka2i-macos-arm64
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
