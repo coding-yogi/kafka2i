@@ -1,11 +1,11 @@
-use std::{ time::Duration, fmt::Display, error::Error};
+use std::{ collections::HashMap, error::Error, fmt::Display, time::Duration};
 use crossbeam::channel::Sender;
 use log::debug;
 use rdkafka::{
     client::OAuthToken, config::FromClientConfigAndContext, consumer::{
         base_consumer::BaseConsumer, 
         Consumer as KafkaConsumer, ConsumerContext, 
-    }, error::KafkaError, metadata::Metadata as KafkaMetadata, types::RDKafkaErrorCode, util::Timeout, ClientConfig, ClientContext, Message, Offset, Statistics, TopicPartitionList
+    }, error::KafkaError, message::Headers, metadata::Metadata as KafkaMetadata, types::RDKafkaErrorCode, util::Timeout, ClientConfig, ClientContext, Message, Offset, Statistics, TopicPartitionList
 };
 use reqwest::blocking::Client as http_client;
 use serde::Deserialize;
@@ -322,6 +322,7 @@ pub struct KafkaMessage {
     pub partition: i32,
     pub offset: i64,
     pub key: Option<String>,
+    pub headers: HashMap<String, String>,
     pub payload: Option<String>,
     pub timestamp: Option<i64>,
 }
@@ -332,24 +333,9 @@ impl KafkaMessage {
             topic: msg.topic().to_string(),
             partition: msg.partition(),
             offset: msg.offset(),
-            key: match msg.key_view::<str>() {
-                Some(k) => {
-                    match k {
-                        Ok(kk) => Some(kk.to_string()),
-                        Err(_) => None,
-                    }
-                },
-                None => None,
-            },
-            payload: match msg.payload_view::<str>() {
-                Some(p) => {
-                    match p {
-                        Ok(pp) => Some(pp.to_string()),
-                        Err(_) => None,
-                    }
-                },
-                None => None,
-            },
+            key: retrieve_key(msg),
+            payload: retrieve_payload(msg),
+            headers: retrieve_headers(msg),
             timestamp: match msg.timestamp() {
                 rdkafka::message::Timestamp::NotAvailable => None,
                 rdkafka::message::Timestamp::CreateTime(t) => Some(t),
@@ -366,5 +352,52 @@ impl KafkaMessage {
     // timestamp or default
     pub fn timestamp_or_default(&self) -> String {
         return self.timestamp.unwrap_or(0).to_string();
+    }
+
+    // Key or default
+    pub fn key_or_default(&self) -> String {
+        return self.key.clone().unwrap_or("No key".to_string())
+    }
+}
+
+// retrieve key from original kafka message
+fn retrieve_key<M: Message>(msg: &M) -> Option<String> {
+    match msg.key_view::<str>() {
+        Some(k) => {
+            match k {
+                Ok(kk) => Some(kk.to_string()),
+                Err(_) => None,
+            }
+        },
+        None => None,
+    }
+}
+
+// retrieve headers from original kafka message
+fn retrieve_headers<M: Message>(msg: &M) -> HashMap<String, String> {
+    let mut headersMap = HashMap::new();
+    if let Some(headers) = msg.headers() {
+        headers.iter().for_each(|header| {
+            if let Some(value) = header.value {
+                headersMap.insert(header.key.to_string(), String::from_utf8_lossy(value).to_string());
+            } else {
+                headersMap.insert(header.key.to_string(), "".to_string());
+            }
+        });
+    }
+
+    headersMap
+}
+
+// retrieve payload from original kafka message
+fn retrieve_payload<M: Message>(msg: &M) -> Option<String> {
+    match msg.payload_view::<str>() {
+        Some(p) => {
+            match p {
+                Ok(pp) => Some(pp.to_string()),
+                Err(_) => None,
+            }
+        },
+        None => None,
     }
 }

@@ -1,9 +1,11 @@
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::{char, sync::Arc, time::Duration};
 use crossbeam::channel::Receiver;
 use chrono::{DateTime};
 use log::{debug, error, info};
 use parking_lot::Mutex;
+use rdkafka::message;
 use rdkafka::{consumer::ConsumerContext, ClientContext};
 use strum::{self, Display, EnumString};
 use crate::kafka::consumer::{Consumer, ConsumerError, KafkaMessage};
@@ -338,9 +340,10 @@ where T: ClientContext + ConsumerContext {
 
     // Write message to TUI
     fn write_message(&mut self, message: KafkaMessage) {
-                let message_payload = pretty_print_json(&message.payload_or_default());
                 let message_timestamp = message.timestamp_or_default();
                 let message_offset = message.offset;
+                let message_payload = format!("Key: {}\n\nHeaders: {}\n\nPayload: {}",
+                    message.key_or_default(), pretty_print_headers(&message.headers), pretty_print_json(&message.payload_or_default()));
 
         // copy to clipboard
         if let Err(err) = self.copy_to_clipboard(&message_payload) {
@@ -657,5 +660,13 @@ fn pretty_print_json(json_str: &str) -> String {
             }
         },
         Err(_) => json_str.to_string()
+    }
+}
+
+// Pretty print headers
+fn pretty_print_headers(headers: &HashMap<String, String>) -> String {
+    match serde_json::to_string_pretty(&headers) {
+        Ok(pretty_json) => pretty_json,
+        Err(_) => format!("{:?}", headers)
     }
 }
