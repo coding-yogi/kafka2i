@@ -149,7 +149,7 @@ const DEFAULT_REFRESH_METADATA_IN_SECS: Duration = Duration::from_secs(30);
 pub struct Consumer<T>
 where T: ClientContext + ConsumerContext {
     base_consumer: BaseConsumer<T>,
-    default_timeout_in_secs: Timeout,
+    default_timeout: Timeout,
     pub refresh_metadata_in_secs: Duration,
     metadata: Metadata,
     stats: Statistics,
@@ -166,22 +166,20 @@ where T: ClientContext + ConsumerContext
         // Time out
         let default_timeout = Timeout::After(DEFAULT_TIMEOUT_IN_SECS);
         
-        let consumer = Consumer {
+        Ok(Consumer {
             base_consumer,
-            default_timeout_in_secs: default_timeout,
+            default_timeout,
             refresh_metadata_in_secs: DEFAULT_REFRESH_METADATA_IN_SECS,
             metadata: Metadata::new(),
             stats: Statistics::default(),
-        };
-
-        Ok(consumer)
+        })
     }
 
     // Fetch Metadata
     pub fn fetch_metadata(&self) -> Result<KafkaMetadata> {
         // Metadata
         debug!("fetching metadata ...");
-        let kafka_metadata = self.base_consumer.fetch_metadata(None, self.default_timeout_in_secs)?; 
+        let kafka_metadata = self.base_consumer.fetch_metadata(None, self.default_timeout)?;
         Ok(kafka_metadata)
     }
 
@@ -198,7 +196,7 @@ where T: ClientContext + ConsumerContext
 
      pub fn fetch_groups(&self) -> Result<Vec<ConsumerGroup>>{
         debug!("fetching groups ...");
-        let group_list = self.base_consumer.fetch_group_list(None, self.default_timeout_in_secs)?;
+        let group_list = self.base_consumer.fetch_group_list(None, self.default_timeout)?;
 
         Ok(group_list.groups().iter()
             .map(|g| g.into())
@@ -207,7 +205,7 @@ where T: ClientContext + ConsumerContext
 
     pub fn fetch_watermarks(&self, topic: &str, partition: i32) -> Result<(i64, i64)>{
         debug!("fetching watermarks for topic {}/{}", topic, partition);
-        let watermarks = self.base_consumer.fetch_watermarks(topic, partition, self.default_timeout_in_secs)?;
+        let watermarks = self.base_consumer.fetch_watermarks(topic, partition, self.default_timeout)?;
         Ok(watermarks)
     }
 
