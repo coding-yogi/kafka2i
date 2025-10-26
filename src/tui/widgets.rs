@@ -501,6 +501,8 @@ pub struct UITable<'a> {
     data: Vec<Vec<String>>
 }
 
+const ROW_HEIGHT: u16 = 5;
+
 impl <'a> UITable<'a> {
     pub fn new(columns: Vec<&'a str>, column_widths: Vec<u16>, data: Vec<Vec<String>>) -> UITable<'a> {
         let mut constraints = vec![];
@@ -510,7 +512,7 @@ impl <'a> UITable<'a> {
 
         let mut rows: Vec<Row> = vec![];
         for data_row in data.iter() {
-            rows.push(Row::new(data_row.clone()).height(5));
+            rows.push(Row::new(data_row.clone()).height(ROW_HEIGHT));
         }
 
         UITable {
@@ -531,7 +533,7 @@ impl <'a> UITable<'a> {
         
         let mut rows: Vec<Row> = vec![];
         for data_row in &self.data {
-            rows.push(Row::new(data_row.clone()).height(10));
+            rows.push(Row::new(data_row.clone()).height(ROW_HEIGHT));
         }
         
         self.table = self.table.clone().rows(rows);
