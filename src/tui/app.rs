@@ -395,9 +395,15 @@ where T: ClientContext + ConsumerContext {
             let partition_details = generate_partition_details(partition.leader(), partition.isr().len(), partition.replicas().len(), low_watermark, high_watermark);
             self.layout.lock().main_layout.details_layout.details.update_cell_data(PARTITIONS_LIST, 0, partition_details);
 
+            // check if there are messages available to consume on the selected topic & partition
+            if high_watermark == low_watermark {
+                self.log_error_and_update(format!("No messages in partition {}/{}", topic_name, partition_id));
+                return;
+            }
+
             // set correct offset
             if offset == -1 {
-                // set offset to the end as per the HWM
+                // set offset to the end based on HWM
                 offset = high_watermark - 1;
             } else if  offset < low_watermark || offset >= high_watermark {
                 self.layout.lock().footer_layout.set_value(ERR_INVALID_OFFSET);
