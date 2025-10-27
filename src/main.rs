@@ -59,7 +59,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
   
     // spawn a task to poll stats consumer at regular interval
     // polling is required to receive stats from the callback
-     let handle = tokio::spawn(async move {
+    let handle = tokio::spawn(async move {
         loop {
             // poll to pull stats
             //let _ = stats_consumer.consume();
@@ -123,13 +123,13 @@ async fn run<'a, T: ClientContext + ConsumerContext>(t: &'a mut Terminal<Crosste
     let (sender, receiver) = unbounded::<AppEvent>();
     let mut app = App::new(consumer, receiver).await;
     let app_layout = app.layout();
+
     let mut events = events::EventHandler::new(1.0, 30.0);
 
     let should_quit = Arc::new(Mutex::new(false));
     let should_quit_clone = should_quit.clone();
 
     // spawn 2 scoped threads
-
     thread::scope(|s| {
         s.spawn(|| {
             loop {

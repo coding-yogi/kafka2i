@@ -5,23 +5,14 @@ use crossbeam::channel::Receiver;
 use chrono::{DateTime};
 use log::{debug, error, info};
 use parking_lot::Mutex;
-use rdkafka::message;
 use rdkafka::{consumer::ConsumerContext, ClientContext};
 use strum::{self, Display, EnumString};
 use crate::kafka::consumer::{Consumer, ConsumerError, KafkaMessage};
+use crate::tui::app;
+use crate::tui::single_layout::AppMode;
 use crate::tui::widgets::Direction;
 
-use super::{single_layout::{AppLayout, BROKERS_LIST, CONSUMER_GROUPS_LIST, PARTITIONS_LIST, TOPICS_LIST}, widgets::InputEvent};
-
-// Mode of App
-#[derive(Clone, Debug, Display, Default)]
-enum Mode {
-    #[default]
-    #[strum(to_string="Consumer")]
-    Consumer,
-    #[strum(to_string="Producer")]
-    Producer
-}
+use super::{single_layout::{self, AppLayout, BROKERS_LIST, CONSUMER_GROUPS_LIST, PARTITIONS_LIST, TOPICS_LIST}, widgets::InputEvent};
 
 #[derive(PartialEq)]
 enum EditMode {
@@ -67,12 +58,12 @@ const UNINITIALISED_OFFSET: i64 = -999;
 struct AppState {
     // should_quit tells the main loop to terminate the app
     should_quit: bool,
-    //mode
-    mode: Mode,
     //edit mode
     edit_mode: EditMode,
     //offset for selected partition
     offset: i64,
+    // app mode
+    app_mode: AppMode,
 }
 
 // App is the high level struct containing
@@ -95,13 +86,12 @@ where T: ClientContext + ConsumerContext
 {
     pub async fn new(kafka_consumer: Arc<Mutex<Consumer<T>>>, app_event_recv: Receiver<AppEvent>) -> App<'a, T> {
         let metadata = kafka_consumer.lock().metadata().clone();
-        let mode = Mode::default();
 
         let app = App {
             layout: Arc::new(Mutex::new(AppLayout::new(&metadata))),
             state: AppState {
                 should_quit: false,
-                mode: mode.clone(),
+                app_mode: AppMode::default(),
                 edit_mode: EditMode::Normal,
                 offset: UNINITIALISED_OFFSET,
             },
@@ -117,7 +107,6 @@ where T: ClientContext + ConsumerContext
             },
         };
 
-        app.layout.lock().footer_layout.update_mode(mode.to_string());
         app
     }
 
@@ -157,6 +146,8 @@ where T: ClientContext + ConsumerContext {
                                     'm' | 'M' => self.handle_message_scroll(Direction::DOWN),
                                     'n' | 'N' => self.handle_message_scroll(Direction::UP),
                                     'h' => self.handle_help_command(),
+                                    'C' => self.set_app_mode(single_layout::AppMode::Consumer),
+                                    'P' => self.set_app_mode(single_layout::AppMode::Producer),
                                     _ => (),
                                 },
                                 _ => (),
@@ -181,6 +172,12 @@ where T: ClientContext + ConsumerContext {
                 Err(_) => log::error!("error occured while receiving app event")
             }
         }
+    }
+
+    // set mode of the app
+    fn set_app_mode(&mut self, mode: single_layout::AppMode) {
+        self.state.app_mode = mode.clone();
+        self.layout.lock().set_app_mode(mode);
     }
 }
 
@@ -222,7 +219,7 @@ where T: ClientContext + ConsumerContext {
             let broker_id = broker.id();
             let partition_leader_count = self.kafka_consumer.lock().metadata().no_of_partitions_for_broker(broker_id);
             let broker_details = generate_broker_details(broker_id, "UP", partition_leader_count);
-            self.layout.lock().main_layout.details_layout.details.update_cell_data(BROKERS_LIST, 0, broker_details);
+            self.layout.lock().main_layout.details_layout.metadata.update_cell_data(BROKERS_LIST, 0, broker_details);
         }
     }
 
@@ -233,7 +230,7 @@ where T: ClientContext + ConsumerContext {
         if let Some(selected_topic) = self.get_selected_item_for_list(TOPICS_LIST) {
             if let Some(topic) = self.kafka_consumer.lock().metadata().get_topic(&selected_topic) {
                 let topic_details = generate_topic_details(topic.partitions().len());
-                self.layout.lock().main_layout.details_layout.details.update_cell_data(TOPICS_LIST, 0, topic_details);
+                self.layout.lock().main_layout.details_layout.metadata.update_cell_data(TOPICS_LIST, 0, topic_details);
 
                 // Fetching all partition names
                 let partitions_names = topic.partition_names();
@@ -254,7 +251,11 @@ where T: ClientContext + ConsumerContext {
         if let Some(selected_partition) = self.get_selected_item_for_list(PARTITIONS_LIST) {
             // reset the stored offset after selecting a new partition
             self.state.offset = UNINITIALISED_OFFSET;
-            self.fetch_message(&selected_partition, -1);
+
+            // fetch message only in consumer mode
+            if self.state.app_mode == AppMode::Consumer {
+                self.fetch_message(&selected_partition, -1)
+            }
         }
     }
 
@@ -264,7 +265,7 @@ where T: ClientContext + ConsumerContext {
         if let Some(selected_cg) = self.get_selected_item_for_list(CONSUMER_GROUPS_LIST) {
             if let Some(cg) = self.kafka_consumer.lock().metadata().get_consumer_group(&selected_cg) {
                 let cg_details = generate_consumer_group_details(cg.state(), cg.members_count());
-                self.layout.lock().main_layout.details_layout.details.update_cell_data(CONSUMER_GROUPS_LIST, 0, cg_details);
+                self.layout.lock().main_layout.details_layout.metadata.update_cell_data(CONSUMER_GROUPS_LIST, 0, cg_details);
             }
         }
     }
@@ -284,8 +285,8 @@ impl <T> App<'_, T>
 where T: ClientContext + ConsumerContext {
     fn handle_message_scroll(&mut self, direction: Direction) {
         match direction {
-            Direction::DOWN => self.layout.lock().main_layout.details_layout.message.handle_down(),
-            Direction::UP => self.layout.lock().main_layout.details_layout.message.handle_up(),
+            Direction::DOWN => self.layout.lock().main_layout.details_layout.consumed_message.handle_down(),
+            Direction::UP => self.layout.lock().main_layout.details_layout.consumed_message.handle_up(),
             _ => ()
         }
     }
@@ -352,14 +353,13 @@ where T: ClientContext + ConsumerContext {
 
         // write to TUI
         info!("message fetched at offset {} of partition {}/{}: {}", message_offset, message.topic, message.partition, message_payload);
-        self.layout.lock().main_layout.details_layout.message.update_with_title(format!("Message offset:{} ts:{}", message_offset, message_timestamp), message_payload.into());
+        self.layout.lock().main_layout.details_layout.consumed_message.update_with_title(format!("Message offset:{} ts:{}", message_offset, message_timestamp), message_payload.into());
     }
 
     // fetch message based on the parition name and offset
     fn fetch_message(&mut self, partition_str:&str, offset: i64) {
-
         // Clear the message block
-        self.layout.lock().main_layout.details_layout.message.update("".into());
+        self.layout.lock().main_layout.details_layout.consumed_message.update("".into());
 
         let mut offset = offset;
 
@@ -377,7 +377,7 @@ where T: ClientContext + ConsumerContext {
             let low_watermark: i64;
 
             // Update status in message block
-            self.layout.lock().main_layout.details_layout.message.update("fetching watermarks ...".into());
+            self.layout.lock().main_layout.details_layout.consumed_message.update("fetching watermarks ...".into());
 
             // fetch watermarks for the give topic and partition id
             match self.kafka_consumer.lock().fetch_watermarks(topic_name, partition_id) {
@@ -393,7 +393,7 @@ where T: ClientContext + ConsumerContext {
 
             // Update UI
             let partition_details = generate_partition_details(partition.leader(), partition.isr().len(), partition.replicas().len(), low_watermark, high_watermark);
-            self.layout.lock().main_layout.details_layout.details.update_cell_data(PARTITIONS_LIST, 0, partition_details);
+            self.layout.lock().main_layout.details_layout.metadata.update_cell_data(PARTITIONS_LIST, 0, partition_details);
 
             // check if there are messages available to consume on the selected topic & partition
             if high_watermark == low_watermark {
@@ -412,14 +412,14 @@ where T: ClientContext + ConsumerContext {
             }
 
             // Assign current partition to consumer
-            self.layout.lock().main_layout.details_layout.message.update("assigning partition ...".into());
+            self.layout.lock().main_layout.details_layout.consumed_message.update("assigning partition ...".into());
             if let Err(err) = self.assign_and_poll(topic_name, partition_id) {
                 self.log_error_and_update(format!("error assigning and polling for partition {}/{}: {}", topic_name, partition_id, err));
                 return;
             }
 
             // seek high watermark -1 by default and consume the message
-            self.layout.lock().main_layout.details_layout.message.update("seeking offset & fetching message ...".into());
+            self.layout.lock().main_layout.details_layout.consumed_message.update("seeking offset & fetching message ...".into());
             if let Some(msg) = self.seek_and_consume(topic_name, partition_id, offset) {
                 self.write_message(msg);
 
@@ -445,7 +445,7 @@ where T: ClientContext + ConsumerContext {
     // log error and update TUI
     fn log_error_and_update(&mut self, message: String) {
         error!("{}", message);
-        self.layout.lock().main_layout.details_layout.message.update(message.into());
+        self.layout.lock().main_layout.details_layout.consumed_message.update(message.into());
     }
 }
 
@@ -456,7 +456,6 @@ where T: ClientContext + ConsumerContext {
     fn toggle_edit_mode(&mut self, mode: EditMode) {
         match mode {
             EditMode::Normal => {
-                //self.layout.lock().footer_layout.handle_input_event(InputEvent::Reset);
                 self.state.edit_mode = EditMode::Normal;
             },
             EditMode::Editing => {
@@ -483,6 +482,10 @@ where T: ClientContext + ConsumerContext {
 
     // validate cmd
     fn handle_command(&mut self, input: &str)  {
+        // For now handle commands only for consumer mode
+        if self.state.app_mode == AppMode::Producer {
+            return;
+        }
 
         let inputs = input.split("!").collect::<Vec<&str>>();
         if inputs.len() < 2 {

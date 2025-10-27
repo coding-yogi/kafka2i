@@ -1,4 +1,5 @@
 use ratatui::{layout::{Constraint, Layout, Rect}, style::Stylize, text::{Line, Span, Text}, widgets::{Clear, ScrollbarOrientation}, Frame};
+use strum::Display;
 use crate::kafka::metadata::Metadata;
 
 use super::widgets::{AppWidget, Direction, InputEvent, UIInput, UIList, UIParagraph, UIParagraphWithScrollbar, UITable};
@@ -12,7 +13,15 @@ pub const CONSUMER_GROUPS_LIST: &str = "Consumer Groups";
 pub const TOPICS_LIST: &str = "Topics";
 pub const PARTITIONS_LIST: &str = "Partitions";
 
-
+// Mode of App
+#[derive(Clone, Debug, Display, Default, PartialEq)]
+pub enum AppMode {
+    #[default]
+    #[strum(to_string="Consumer")]
+    Consumer,
+    #[strum(to_string="Producer")]
+    Producer
+}
 
 // Top level application layout
 pub struct AppLayout<'a> {
@@ -25,13 +34,17 @@ pub struct AppLayout<'a> {
 
 impl <'a> AppLayout<'a> {
     pub fn new(metadata: &Metadata) -> AppLayout<'a> {
-        AppLayout{
+        let mut app_layout = AppLayout{
             header_layout: HeaderLayout::new(),
             main_layout: MainLayout::new(metadata),
             footer_layout: FooterLayout::new(),
             help_layout: HelpLayout::new(),
             show_help: false,
-        }
+        };
+
+        // set default mode
+        app_layout.footer_layout.set_mode(AppMode::Consumer.to_string());
+        app_layout
     }
 
     pub fn render(&mut self, frame: &mut Frame) {
@@ -39,7 +52,7 @@ impl <'a> AppLayout<'a> {
 
         //overall layout
         let outer_layout = Layout::vertical([Length(5), Fill(1), Length(3)]);
-        let [title, main, footer] = outer_layout.areas(frame.size());
+        let [title, main, footer] = outer_layout.areas(frame.area());
 
         self.header_layout.render(frame, title);
         self.main_layout.render(frame, main);
@@ -49,6 +62,11 @@ impl <'a> AppLayout<'a> {
         if self.show_help {
             self.help_layout.render(frame, self.centered_help_area(frame));
         }
+    }
+
+    pub fn set_app_mode(&mut self, mode: AppMode) {
+        self.main_layout.details_layout.mode = mode.clone();
+        self.footer_layout.set_mode(mode.to_string());
     }
 
     // function to get a rect of 60 x 40 in the center of the terminal
@@ -210,8 +228,16 @@ impl <'a> ListsLayout<'a> {
 
 // Details Layout
 pub struct DetailsLayout<'a> {
-    pub details: UITable<'a>,
-    pub message: UIParagraphWithScrollbar<'a>
+    mode: AppMode,
+    pub metadata: UITable<'a>,
+
+    // consumer mode fields
+    pub consumed_message: UIParagraphWithScrollbar<'a>,
+
+    // producer mode fields
+    pub key: UIInput<'a, UIParagraph<'a>>,
+    pub headers: UIInput<'a, UIParagraphWithScrollbar<'a>>,
+    pub payload: UIInput<'a, UIParagraphWithScrollbar<'a>>,
 }
 
 impl <'a> DetailsLayout<'a> {
@@ -221,16 +247,33 @@ impl <'a> DetailsLayout<'a> {
         let data = vec![vec!["".to_string(); column_constraints.len()]];
 
         DetailsLayout {
-            details: UITable::new(column_headers, column_constraints, data),
-            message: UIParagraphWithScrollbar::new("Message".to_string(), "".into(), ScrollbarOrientation::VerticalRight),
+            mode: AppMode::default(),
+            metadata: UITable::new(column_headers, column_constraints, data),
+            consumed_message: UIParagraphWithScrollbar::new_with_scrollbar_orientation("Message".to_string(),
+            "".into(), ScrollbarOrientation::VerticalRight),
+            key: UIInput::new("Key".to_string()),
+            headers: UIInput::new("Headers".to_string()),
+            payload: UIInput::new("Payload".to_string())
         }
     }
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
-        let layout = Layout::vertical([Constraint::Length(9), Constraint::Fill(1)]);
-        let [details, message] = layout.areas(area);
-        self.details.render(frame, details);
-        self.message.render(frame, message);
+        match self.mode {
+            AppMode::Consumer => {
+                let layout = Layout::vertical([Constraint::Length(9), Constraint::Fill(1)]);
+                let [metadata, message] = layout.areas(area);
+                self.metadata.render(frame, metadata);
+                self.consumed_message.render(frame, message);
+            },
+            AppMode::Producer => {
+                let layout = Layout::vertical([Constraint::Length(9), Constraint::Length(4), Constraint::Length(9), Constraint::Fill(1)]);
+                let [metadata, key, headers, payload] = layout.areas(area);
+                self.metadata.render(frame, metadata);
+                self.key.render(frame, key);
+                self.headers.render(frame, headers);
+                self.payload.render(frame, payload);
+            }
+        }
     }
 }
 
@@ -238,7 +281,7 @@ impl <'a> DetailsLayout<'a> {
 pub struct FooterLayout<'a> {
     pub mode: UIParagraph<'a>,
     pub footer: UIParagraph<'a>,
-    pub input: UIInput<'a>,
+    pub input: UIInput<'a, UIParagraph<'a>>,
 }
 
 impl <'a> FooterLayout<'a> {
@@ -252,7 +295,7 @@ impl <'a> FooterLayout<'a> {
         }
     }
 
-    pub fn update_mode(&mut self, mode: String) {
+    pub fn set_mode(&mut self, mode: String) {
         self.mode.update(Text::from(vec![vec![
                                     Span::from(" Mode: ").gray().bold(),
                                     Span::from(mode).bold().green()].into()]));

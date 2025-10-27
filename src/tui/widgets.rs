@@ -1,4 +1,4 @@
-use std::char;
+use std::{char, marker::PhantomData};
 
 use ratatui::{
     layout::Constraint, prelude::Rect, style::{palette::tailwind, Color, Modifier, Style, Stylize}, symbols, text::{self, Span, Text}, widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table, TableState, Tabs, Wrap}, Frame
@@ -244,6 +244,14 @@ impl <'a> AppWidget for UIList<'a> {
     } 
 }
 
+// trait ParagraphWidget
+pub trait ParagraphWidget<'a>: AppWidget {
+    fn new(name: String, text: Text<'a>) -> Self;
+    fn update(&mut self, text: Text<'a>);
+}
+
+const DEFAULT_SCROLLBAR_ORIENTATION: ScrollbarOrientation = ScrollbarOrientation::VerticalRight;
+
 #[derive(Clone)]
 pub struct UIParagraphWithScrollbar<'a> {
     paragraph: UIParagraph<'a>,
@@ -251,7 +259,16 @@ pub struct UIParagraphWithScrollbar<'a> {
 }
 
 impl <'a> UIParagraphWithScrollbar<'a> {
-    pub fn new(name: String, text: Text<'a>, orientation: ScrollbarOrientation) -> UIParagraphWithScrollbar<'a> {
+    pub fn new(name: String, text: Text<'a>) -> UIParagraphWithScrollbar<'a> {
+        let content_length = text.lines.len();
+
+        UIParagraphWithScrollbar {
+            paragraph: UIParagraph::new(name, text),
+            scrollbar: UIScrollbar::new(DEFAULT_SCROLLBAR_ORIENTATION, content_length),
+        }
+    }
+
+    pub fn new_with_scrollbar_orientation(name: String, text: Text<'a>, orientation: ScrollbarOrientation) -> UIParagraphWithScrollbar<'a> {
         let content_length = text.lines.len();
 
         UIParagraphWithScrollbar {
@@ -295,6 +312,16 @@ impl <'a> AppWidget for UIParagraphWithScrollbar<'a> {
 
     fn highlight_border(&mut self) {
         self.paragraph.highlight_border();
+    }
+}
+
+impl <'a> ParagraphWidget<'a> for UIParagraphWithScrollbar<'a> {
+    fn new(name: String, text: Text<'a>) -> Self {
+        UIParagraphWithScrollbar::new(name, text)
+    }
+
+    fn update(&mut self, text: Text<'a>) {
+        self.update(text);
     }
 }
 
@@ -355,6 +382,16 @@ impl <'a> AppWidget for UIParagraph<'a> {
     }
 }
 
+impl <'a> ParagraphWidget<'a> for UIParagraph<'a> {
+    fn new(name: String, text: Text<'a>) -> Self {
+        UIParagraph::new(name, text)
+    }
+
+    fn update(&mut self, text: Text<'a>) {
+        self.update(text);
+    }
+}
+
 fn create_block<'a>(color: Color, name: String, with_border: bool) -> Block<'a> {
     let block = Block::default();
     if with_border {
@@ -375,16 +412,20 @@ pub enum InputEvent {
 }
 
 #[derive(Clone)]
-pub struct UIInput<'a> {
-    paragraph: UIParagraph<'a>,
+pub struct UIInput<'a, T>
+where T: ParagraphWidget<'a> + Clone{
+    paragraph: T,
     input: Input,
+    _marker: PhantomData<&'a T>
 }
 
-impl <'a> UIInput<'a> {
-    pub fn new(name: String) -> UIInput<'a> {
+impl <'a, T> UIInput<'a, T>
+where T: ParagraphWidget<'a> + Clone {
+    pub fn new(name: String) -> UIInput<'a, T> {
         UIInput {
-            paragraph: UIParagraph::new(name, "".into()),
+            paragraph: T::new(name, "".into()),
             input: Input::default(),
+            _marker: PhantomData
         }
     }
 
@@ -431,7 +472,8 @@ impl <'a> UIInput<'a> {
     }
 }
 
-impl <'a> AppWidget for UIInput<'a> {
+impl <'a, T> AppWidget for UIInput<'a, T>
+where T: ParagraphWidget<'a> + Clone {
     fn render(&mut self, frame: &mut Frame, area: Rect) {
         self.paragraph.render(frame, area);
     }
