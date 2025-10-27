@@ -1,4 +1,3 @@
-use log::info;
 use ratatui::{layout::{Constraint, Layout, Rect}, style::Stylize, text::{Line, Span, Text}, widgets::{Clear, ScrollbarOrientation}, Frame};
 use strum::Display;
 use crate::kafka::metadata::Metadata;
@@ -195,7 +194,6 @@ impl <'a> MainLayout<'a> {
             }
         } else {
             new_idx = self.selected_widget.saturating_add(1);
-            info!("new index on tab is {} while length is {}", new_idx, len);
             // After increasing the index, if it matches or exceeds the length, then set to 0
             // exceeding length would occur if UI is in producer mode with selected input widget
             // and then switched back to consumer before tab
@@ -212,7 +210,6 @@ impl <'a> MainLayout<'a> {
 
 // Lists Layout
 pub struct ListsLayout<'a> {
-    selected_list: usize,
     pub lists: Vec<UIList<'a>>,
 }
 
@@ -230,7 +227,6 @@ impl <'a> ListsLayout<'a> {
         lists[selected_list].highlight_border();
 
         ListsLayout {
-            selected_list,
             lists
         }
     }
@@ -252,11 +248,17 @@ impl <'a> ListsLayout<'a> {
     }
 
     pub fn handle_navigation(&mut self, direction: Direction) {
-        self.lists[self.selected_list].handle_navigation(direction);
+        if let Some(selected_list) = self.selected_list_index() {
+            self.lists[selected_list].handle_navigation(direction);
+        }
     }
 
     pub fn selected_list(&self) -> &UIList<'a> {
-        &self.lists[self.selected_list]
+        &self.lists[self.selected_list_index().unwrap_or(0)]
+    }
+
+    pub fn selected_list_index(&self) -> Option<usize> {
+        self.lists.iter().position(|l| l.focused())
     }
 }
 

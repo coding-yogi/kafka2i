@@ -127,6 +127,7 @@ pub struct UIList <'a> {
     list: List<'a>,
     state: ListState,
     area: Rect,
+    focused: bool,
 }
 
 impl <'a> UIList <'a> {
@@ -143,6 +144,7 @@ impl <'a> UIList <'a> {
             list: get_list(name, list_items),
             state: ListState::default(),
             area: Rect::default(),
+            focused: false,
         }
     }
 
@@ -174,6 +176,10 @@ impl <'a> UIList <'a> {
         }
 
         None
+    }
+
+    pub fn focused(&self) -> bool {
+        self.focused
     }
     
     pub fn state(&self) -> Option<usize> {
@@ -237,10 +243,12 @@ impl <'a> AppWidget for UIList<'a> {
     
     fn highlight_border(&mut self) {
         self.list = self.list.clone().block(create_block(HIGHLIGHT_COLOR, self.name.clone(), true));
+        self.focused = true
     }
 
     fn normalise_border(&mut self) {
         self.list = self.list.clone().block(create_block(NORMAL_COLOR, self.name.clone(), true));
+         self.focused = false
     } 
 }
 
