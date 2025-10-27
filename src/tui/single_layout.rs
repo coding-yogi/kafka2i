@@ -1,3 +1,4 @@
+use log::info;
 use ratatui::{layout::{Constraint, Layout, Rect}, style::Stylize, text::{Line, Span, Text}, widgets::{Clear, ScrollbarOrientation}, Frame};
 use strum::Display;
 use crate::kafka::metadata::Metadata;
@@ -42,7 +43,6 @@ impl <'a> AppLayout<'a> {
             show_help: false,
         };
 
-        // set default mode
         app_layout.footer_layout.set_mode(AppMode::Consumer.to_string());
         app_layout
     }
@@ -130,14 +130,17 @@ impl <'a> HeaderLayout<'a> {
 // Main layout
 pub struct MainLayout<'a> {
     pub lists_layout: ListsLayout<'a>,
-    pub details_layout: DetailsLayout<'a>
+    pub details_layout: DetailsLayout<'a>,
+    // To keep track of the widget selected
+    selected_widget: usize
 }
 
 impl <'a> MainLayout<'a> {
     pub fn new(metadata: &Metadata) -> MainLayout<'a> {
         MainLayout {
             lists_layout: ListsLayout::new(metadata),
-            details_layout: DetailsLayout::new()
+            details_layout: DetailsLayout::new(),
+            selected_widget: 0,
         }
     }
 
@@ -149,6 +152,62 @@ impl <'a> MainLayout<'a> {
         self.lists_layout.render(frame, list_layout);
         self.details_layout.render(frame, details_layout);
     }
+
+    pub fn handle_tab(&mut self, back_tab: bool) {
+        // collect all list widgets
+        let mut selectable_widgets: Vec<&mut (dyn AppWidget + Send)> = self.lists_layout.lists.iter_mut()
+                    .map(|l| l as &mut (dyn AppWidget + Send)).collect();
+
+        // collect all input widgets
+        let mut input_widgets: Vec<&mut (dyn AppWidget + Send)> = vec![
+            &mut self.details_layout.key,
+            &mut self.details_layout.headers,
+            &mut self.details_layout.payload
+        ];
+
+        // calculate length before appending to selectable_widgets, as len() post append step will be 0
+        let inputs_cnt = input_widgets.len();
+
+        selectable_widgets.append(&mut input_widgets);
+
+        // normalise border of already selected widget
+        selectable_widgets[self.selected_widget].normalise_border();
+
+        // If producer mode, consider all widgets
+        let mut len = selectable_widgets.len();
+
+        // If consumer mode reduce the length by length of input widgets
+        if self.details_layout.mode == AppMode::Consumer {
+            len = len - inputs_cnt;
+        }
+
+        let mut new_idx = self.selected_widget;
+        if back_tab {
+            if new_idx == 0 {
+                new_idx = len - 1;
+            } else {
+                new_idx = self.selected_widget.saturating_sub(1);
+                // After subtracting if the new index is greater than the len-1 of widgets, then it should be set to max
+                // This scenario can happen if an input widget on producer screen is selected currently and we switch to consumer before backtab
+                if new_idx >= len {
+                    new_idx =  len - 1;
+                }
+            }
+        } else {
+            new_idx = self.selected_widget.saturating_add(1);
+            info!("new index on tab is {} while length is {}", new_idx, len);
+            // After increasing the index, if it matches or exceeds the length, then set to 0
+            // exceeding length would occur if UI is in producer mode with selected input widget
+            // and then switched back to consumer before tab
+            if new_idx >= len {
+                new_idx = 0
+            }
+        }
+
+        // higlight selected list border
+        self.selected_widget = new_idx;
+        selectable_widgets[self.selected_widget].highlight_border();
+    }
 }
 
 // Lists Layout
@@ -159,7 +218,7 @@ pub struct ListsLayout<'a> {
 
 impl <'a> ListsLayout<'a> {
     pub fn new(metadata: &Metadata) -> ListsLayout<'a> {
-        // initlaise all UI Lists
+        // initialise all UI Lists
         let mut lists = vec![];
         lists.push(UIList::new(BROKERS_LIST.to_string(), metadata.brokers_list()));
         lists.push(UIList::new(CONSUMER_GROUPS_LIST.to_string(), metadata.consumer_group_lists()));
@@ -194,31 +253,6 @@ impl <'a> ListsLayout<'a> {
 
     pub fn handle_navigation(&mut self, direction: Direction) {
         self.lists[self.selected_list].handle_navigation(direction);
-    }
-
-    pub fn handle_tab(&mut self, back_tab: bool) {
-        // normalise current block
-        self.lists[self.selected_list].normalise_border();
-
-        let mut new_idx = self.selected_list;
-
-        if back_tab {
-            if new_idx == 0 {
-                new_idx = self.lists.len() - 1;
-            } else {
-                new_idx = self.selected_list.saturating_sub(1);
-            }
-
-        } else {
-            new_idx = self.selected_list.saturating_add(1);
-            if new_idx == self.lists.len() {
-                new_idx = 0
-            }
-        }
-        
-        // higlight selected list border
-        self.selected_list = new_idx;
-        self.lists[self.selected_list].highlight_border();
     }
 
     pub fn selected_list(&self) -> &UIList<'a> {

@@ -56,14 +56,14 @@ const UNINITIALISED_OFFSET: i64 = -999;
 
 // App state maintains the state at app level
 struct AppState {
-    // should_quit tells the main loop to terminate the app
-    should_quit: bool,
+    // app mode
+    app_mode: AppMode,
     //edit mode
     edit_mode: EditMode,
     //offset for selected partition
     offset: i64,
-    // app mode
-    app_mode: AppMode,
+    // should_quit tells the main loop to terminate the app
+    should_quit: bool,
 }
 
 // App is the high level struct containing
@@ -187,7 +187,7 @@ where T: ClientContext + ConsumerContext {
 
     // Handles tab event which switches between the available tabs
     fn handle_tab(&mut self, back_tab: bool) {
-        self.layout.lock().main_layout.lists_layout.handle_tab(back_tab);
+        self.layout.lock().main_layout.handle_tab(back_tab);
     }
 
     // Handles the list navigation for the list in focus 
