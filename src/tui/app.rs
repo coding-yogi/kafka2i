@@ -142,8 +142,8 @@ where T: ClientContext + ConsumerContext {
                                     'm' => self.handle_message_scroll(Direction::DOWN),
                                     'n' => self.handle_message_scroll(Direction::UP),
                                     'h' => self.handle_help_command(),
-                                    'C' => self.set_app_mode(single_layout::AppMode::Consumer),
-                                    'P' => self.set_app_mode(single_layout::AppMode::Producer),
+                                    'c' => self.set_app_mode(single_layout::AppMode::Consumer),
+                                    'p' => self.set_app_mode(single_layout::AppMode::Producer),
                                     'q' | 'Q' => {
                                         self.state.should_quit = true;
                                         break;

@@ -70,7 +70,7 @@ impl <'a> AppLayout<'a> {
 
     // function to get a rect of 60 x 40 in the center of the terminal
     fn centered_help_area(&self, frame: &Frame) -> Rect {
-        let area = frame.size();
+        let area = frame.area();
         let width = 45;
         let height = 45;
 
@@ -341,8 +341,10 @@ impl <'a> DetailsLayout<'a> {
             self.key.handle_event(event);
         } else if self.headers.is_focused() {
             self.headers.handle_event(event);
+            self.headers.scroll_to_end();
         } else if self.payload.is_focused() {
             self.payload.handle_event(event);
+            self.headers.scroll_to_end();
         }
     }
 }

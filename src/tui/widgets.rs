@@ -1,5 +1,6 @@
-use std::{char, marker::PhantomData};
+use std::{any::Any, char, marker::PhantomData};
 
+use log::{debug, info};
 use ratatui::{
     layout::Constraint, prelude::Rect, style::{palette::tailwind, Color, Modifier, Style, Stylize}, symbols, text::{self, Span, Text}, widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table, TableState, Tabs, Wrap}, Frame
 };
@@ -256,6 +257,12 @@ impl <'a> AppWidget for UIList<'a> {
 pub trait ParagraphWidget<'a>: AppWidget {
     fn new(name: String, text: Text<'a>) -> Self;
     fn update(&mut self, text: Text<'a>);
+    fn downcast_to_paragraph(&mut self) -> Option<&mut UIParagraph<'a>> {
+        None
+    }
+    fn downcast_to_paragraph_with_scrollbar(&mut self) -> Option<&mut UIParagraphWithScrollbar<'a>> {
+        None
+    }
 }
 
 const DEFAULT_SCROLLBAR_ORIENTATION: ScrollbarOrientation = ScrollbarOrientation::VerticalRight;
@@ -286,26 +293,38 @@ impl <'a> UIParagraphWithScrollbar<'a> {
     }
 
     pub fn update(&mut self, text: Text<'a>) {
-        let content_length = text.lines.len();
+        let content_height = text.lines.len();
         self.paragraph.update(text); 
-        self.scrollbar.update(content_length);
+        self.scrollbar.update(content_height);
     }
 
     pub fn update_with_title(&mut self, title: String, text: Text<'a>) {
-        let content_length = text.lines.len();
+        let content_height = text.lines.len();
         self.paragraph.update_with_name(title,text); 
-        self.scrollbar.update(content_length);
+        self.scrollbar.update(content_height);
     }
 
     pub fn handle_down(&mut self) {
-        self.scrollbar.handle_down();
+        self.scrollbar.scroll_down_once();
         self.paragraph.scroll((self.scrollbar.scroll_state,0));
     }
 
     pub fn handle_up(&mut self) {
-        self.scrollbar.handle_up();
+        self.scrollbar.scroll_up_once();
         self.paragraph.scroll((self.scrollbar.scroll_state,0));
     }
+
+    pub fn scroll_till_end(&mut self) {
+        self.scrollbar.scroll_down_till_end(self.paragraph.height() as usize);
+        self.paragraph.scroll((self.scrollbar.scroll_state,0));
+    }
+
+    pub fn scroll_till_start(&mut self) {
+        self.scrollbar.scroll_up_till_start();
+        self.paragraph.scroll((self.scrollbar.scroll_state,0));
+    }
+
+
 }
 
 impl <'a> AppWidget for UIParagraphWithScrollbar<'a> {
@@ -330,6 +349,10 @@ impl <'a> ParagraphWidget<'a> for UIParagraphWithScrollbar<'a> {
 
     fn update(&mut self, text: Text<'a>) {
         self.update(text);
+    }
+
+    fn downcast_to_paragraph_with_scrollbar(&mut self) -> Option<&mut UIParagraphWithScrollbar<'a>> {
+        Some(self)
     }
 }
 
@@ -373,6 +396,10 @@ impl <'a> UIParagraph<'a> {
     pub fn scroll(&mut self, offset: (u16, u16)) {
        self.paragraph =  self.paragraph.clone().scroll(offset);
     }
+
+    pub fn height(&self) -> u16 {
+        self.area.height
+    }
 }
 
 impl <'a> AppWidget for UIParagraph<'a> {
@@ -398,6 +425,10 @@ impl <'a> ParagraphWidget<'a> for UIParagraph<'a> {
     fn update(&mut self, text: Text<'a>) {
         self.update(text);
     }
+
+    fn downcast_to_paragraph(&mut self) -> Option<&mut UIParagraph<'a>> {
+        Some(self)
+    }
 }
 
 fn create_block<'a>(color: Color, name: String, with_border: bool) -> Block<'a> {
@@ -422,7 +453,6 @@ pub enum InputEvent {
 #[derive(Clone)]
 pub struct UIInput<'a, T>
 where T: ParagraphWidget<'a> + Clone{
-    char_index: usize,
     paragraph: T,
     input: Input,
     focused: bool,
@@ -433,7 +463,6 @@ impl <'a, T> UIInput<'a, T>
 where T: ParagraphWidget<'a> + Clone {
     pub fn new(name: String) -> UIInput<'a, T> {
         UIInput {
-            char_index: 0,
             paragraph: T::new(name, "".into()),
             input: Input::default(),
             _marker: PhantomData,
@@ -486,6 +515,18 @@ where T: ParagraphWidget<'a> + Clone {
     pub fn is_focused(&self) -> bool {
         self.focused
     }
+
+    pub fn scroll_to_end(&mut self) {
+        if let Some(paragraph) = self.paragraph.downcast_to_paragraph_with_scrollbar() {
+            paragraph.scroll_till_end();
+        }
+    }
+
+     pub fn scroll_to_start(&mut self) {
+        if let Some(paragraph) = self.paragraph.downcast_to_paragraph_with_scrollbar() {
+            paragraph.scroll_till_start();
+        }
+    }
 }
 
 impl <'a, T> AppWidget for UIInput<'a, T>
@@ -500,7 +541,11 @@ where T: ParagraphWidget<'a> + Clone {
                 x = input_lines[input_lines.len()-1].len() + 1;
             }
 
-            frame.set_cursor_position((area.x + x as u16, area.y + input_lines.len() as u16));
+            // we do not want the cursor to go past the height of the widget
+            // so we will consider min of lines or height of the widget
+            // we will reduce 2 from height to account for borders
+            let y = (area.height-2).min(input_lines.len() as u16);
+            frame.set_cursor_position((area.x + x as u16, area.y + y));
         }
 
         self.paragraph.render(frame, area);
@@ -523,6 +568,7 @@ pub struct UIScrollbar<'a> {
     area: Rect,
     state: ScrollbarState,
     scroll_state: u16,
+    content_length: usize,
 }
 
 impl <'a> UIScrollbar<'a> {
@@ -532,21 +578,39 @@ impl <'a> UIScrollbar<'a> {
             area: Rect::default(), 
             state: ScrollbarState::new(content_length),
             scroll_state: 0,
+            content_length,
         }
     }
 
     pub fn update(&mut self, content_length: usize) {
         self.state = ScrollbarState::new(content_length);
         self.scroll_state = 0;
+        self.content_length = content_length;
     }
 
-    pub fn handle_down(&mut self) {
-        self.scroll_state = self.scroll_state.saturating_add(1);
+    pub fn scroll_down_once(&mut self) {
+        //self.scroll_state = self.scroll_state.saturating_add(1).min(self.content_length.saturating_sub(1) as u16);
+        self.scroll_state = self.scroll_state.saturating_add(1) as u16;
         self.state = self.state.position(self.scroll_state.into());
     }
 
-    pub fn handle_up(&mut self) {
+    pub fn scroll_down_till_end(&mut self, size: usize) {
+        // compensate for borders
+        let size_without_borders = size - 3;
+        info!("content length {}, size {}", self.content_length, size);
+        if self.content_length >= size_without_borders {
+            self.scroll_state = (self.content_length-size_without_borders).saturating_sub(1) as u16;
+            self.state = self.state.position(self.scroll_state.into());
+        }
+    }
+
+    pub fn scroll_up_once(&mut self) {
         self.scroll_state = self.scroll_state.saturating_sub(1);
+        self.state = self.state.position(self.scroll_state.into());
+    }
+
+    pub fn scroll_up_till_start(&mut self) {
+        self.scroll_state = 0;
         self.state = self.state.position(self.scroll_state.into());
     }
 }
