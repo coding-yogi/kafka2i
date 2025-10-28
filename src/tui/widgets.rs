@@ -178,7 +178,7 @@ impl <'a> UIList <'a> {
         None
     }
 
-    pub fn focused(&self) -> bool {
+    pub fn is_focused(&self) -> bool {
         self.focused
     }
     
@@ -367,7 +367,7 @@ impl <'a> UIParagraph<'a> {
     pub fn update_with_name(&mut self, name: String, text: Text<'a>) {
         self.paragraph = Paragraph::new(text)
             .wrap(Wrap { trim: false })
-            .block(create_block(NORMAL_COLOR, name, true))
+            .block(create_block(HIGHLIGHT_COLOR, name, true))
     }
 
     pub fn scroll(&mut self, offset: (u16, u16)) {
@@ -422,18 +422,22 @@ pub enum InputEvent {
 #[derive(Clone)]
 pub struct UIInput<'a, T>
 where T: ParagraphWidget<'a> + Clone{
+    char_index: usize,
     paragraph: T,
     input: Input,
-    _marker: PhantomData<&'a T>
+    focused: bool,
+    _marker: PhantomData<&'a T>,
 }
 
 impl <'a, T> UIInput<'a, T>
 where T: ParagraphWidget<'a> + Clone {
     pub fn new(name: String) -> UIInput<'a, T> {
         UIInput {
+            char_index: 0,
             paragraph: T::new(name, "".into()),
             input: Input::default(),
-            _marker: PhantomData
+            _marker: PhantomData,
+            focused: false,
         }
     }
 
@@ -478,20 +482,38 @@ where T: ParagraphWidget<'a> + Clone {
         self.input = self.input.clone().with_value(value.to_string());
         self.paragraph.update(value.into());
     }
+
+    pub fn is_focused(&self) -> bool {
+        self.focused
+    }
 }
 
 impl <'a, T> AppWidget for UIInput<'a, T>
 where T: ParagraphWidget<'a> + Clone {
     fn render(&mut self, frame: &mut Frame, area: Rect) {
+        if self.focused {
+            let width = area.width.max(3) - 3;
+            let scroll = self.input.visual_scroll(width as usize);
+            let mut x = self.input.visual_cursor().max(scroll) - scroll + 1;
+            let input_lines: Vec<&str> = self.input.value().split('\n').collect();
+            if input_lines.len() != 0 {
+                x = input_lines[input_lines.len()-1].len() + 1;
+            }
+
+            frame.set_cursor_position((area.x + x as u16, area.y + input_lines.len() as u16));
+        }
+
         self.paragraph.render(frame, area);
     }
 
     fn normalise_border(&mut self) {
         self.paragraph.normalise_border();
+        self.focused = false;
     }
 
     fn highlight_border(&mut self) {
         self.paragraph.highlight_border();
+        self.focused = true;
     }
 }
 

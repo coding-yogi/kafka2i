@@ -152,10 +152,14 @@ impl <'a> MainLayout<'a> {
         self.details_layout.render(frame, details_layout);
     }
 
-    pub fn handle_tab(&mut self, back_tab: bool) {
+    // handle_tab will highlight the required widget and also return a boolean stating if edit mode should be enabled
+    pub fn handle_tab(&mut self, back_tab: bool) -> bool {
         // collect all list widgets
         let mut selectable_widgets: Vec<&mut (dyn AppWidget + Send)> = self.lists_layout.lists.iter_mut()
                     .map(|l| l as &mut (dyn AppWidget + Send)).collect();
+
+        // length of lists
+        let lists_cnt = selectable_widgets.len();
 
         // collect all input widgets
         let mut input_widgets: Vec<&mut (dyn AppWidget + Send)> = vec![
@@ -175,7 +179,7 @@ impl <'a> MainLayout<'a> {
         // If producer mode, consider all widgets
         let mut len = selectable_widgets.len();
 
-        // If consumer mode reduce the length by length of input widgets
+        // If in consumer mode, reduce the length by length of input widgets
         if self.details_layout.mode == AppMode::Consumer {
             len = len - inputs_cnt;
         }
@@ -205,6 +209,25 @@ impl <'a> MainLayout<'a> {
         // higlight selected list border
         self.selected_widget = new_idx;
         selectable_widgets[self.selected_widget].highlight_border();
+
+        // if any of the input widget is selected we need to enable edit mode
+        new_idx >= lists_cnt
+    }
+
+    pub fn normalise_border(&mut self) {
+         // collect all list widgets
+        let mut selectable_widgets: Vec<&mut (dyn AppWidget + Send)> = self.lists_layout.lists.iter_mut()
+                    .map(|l| l as &mut (dyn AppWidget + Send)).collect();
+
+        // collect all input widgets
+        let mut input_widgets: Vec<&mut (dyn AppWidget + Send)> = vec![
+            &mut self.details_layout.key,
+            &mut self.details_layout.headers,
+            &mut self.details_layout.payload
+        ];
+
+        selectable_widgets.append(&mut input_widgets);
+        selectable_widgets[self.selected_widget].normalise_border();
     }
 }
 
@@ -258,7 +281,7 @@ impl <'a> ListsLayout<'a> {
     }
 
     pub fn selected_list_index(&self) -> Option<usize> {
-        self.lists.iter().position(|l| l.focused())
+        self.lists.iter().position(|l| l.is_focused())
     }
 }
 
@@ -309,6 +332,17 @@ impl <'a> DetailsLayout<'a> {
                 self.headers.render(frame, headers);
                 self.payload.render(frame, payload);
             }
+        }
+    }
+
+    pub fn handle_input_event(&mut self, event: InputEvent) {
+        //check which input is focused and delegate call to its input handler
+        if self.key.is_focused() {
+            self.key.handle_event(event);
+        } else if self.headers.is_focused() {
+            self.headers.handle_event(event);
+        } else if self.payload.is_focused() {
+            self.payload.handle_event(event);
         }
     }
 }
@@ -372,15 +406,18 @@ impl <'a> HelpLayout<'a> {
             Span::from("").into(),
             help_option(" TAB      ", "Navigate between lists"),
             help_option(" UP/DOWN  ", "Scroll thru the selected lists"),
-            help_option(" M        ", "Scroll down the message pane"),
-            help_option(" N        ", "Scroll up the message pane"),
+            help_option(" m        ", "Scroll down the message pane"),
+            help_option(" n        ", "Scroll up the message pane"),
             help_option(" RIGHT    ", "Move to next offset"),
             help_option(" Left     ", "Move to previous offset"),
-            help_option(" :        ", "Enter edit mode"),
-            help_option(" H        ", "Show/Hide help menu"),
-            help_option(" ESC      ", "Exist the application"),
+            help_option(" :        ", "Enter edit mode for consumer"),
+            help_option(" c        ", "Switch to consumer mode"),
+            help_option(" p        ", "Switch to producer mode"),
+            help_option(" h        ", "Show/Hide help menu"),
+            help_option(" ESC      ", "Exit the edit mode for consumer & producer"),
+            help_option(" q        ", "Quit the application"),
             Span::from("").into(),
-            Line::from(Span::from(" Commands (edit mode):").green()),
+            Line::from(Span::from(" Consumer Commands (edit mode):").green()),
             Span::from("").into(),
             help_option(" offset!<num>  ", "Fetches the message at a given offset"),
             help_option(" ts!<epoch>    ", "Fetches the message for a given timestamp"),

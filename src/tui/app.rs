@@ -10,7 +10,7 @@ use strum::{self, Display, EnumString};
 use crate::kafka::consumer::{Consumer, ConsumerError, KafkaMessage};
 use crate::tui::app;
 use crate::tui::single_layout::AppMode;
-use crate::tui::widgets::Direction;
+use crate::tui::widgets::{AppWidget, Direction};
 
 use super::{single_layout::{self, AppLayout, BROKERS_LIST, CONSUMER_GROUPS_LIST, PARTITIONS_LIST, TOPICS_LIST}, widgets::InputEvent};
 
@@ -137,17 +137,17 @@ where T: ClientContext + ConsumerContext {
                                 AppEvent::Down => self.handle_list_navigation(Direction::DOWN),
                                 AppEvent::Left => self.handle_offset_navigation(Direction::LEFT),
                                 AppEvent::Right => self.handle_offset_navigation(Direction::RIGHT),
-                                AppEvent::Esc => {
-                                    self.state.should_quit = true;
-                                    break;
-                                },
-                                AppEvent::Edit => self.toggle_edit_mode(EditMode::Editing),
                                 AppEvent::Input(char) => match char {
-                                    'm' | 'M' => self.handle_message_scroll(Direction::DOWN),
-                                    'n' | 'N' => self.handle_message_scroll(Direction::UP),
+                                    ':' => self.toggle_edit_mode(EditMode::Editing),
+                                    'm' => self.handle_message_scroll(Direction::DOWN),
+                                    'n' => self.handle_message_scroll(Direction::UP),
                                     'h' => self.handle_help_command(),
                                     'C' => self.set_app_mode(single_layout::AppMode::Consumer),
                                     'P' => self.set_app_mode(single_layout::AppMode::Producer),
+                                    'q' | 'Q' => {
+                                        self.state.should_quit = true;
+                                        break;
+                                    },
                                     _ => (),
                                 },
                                 _ => (),
@@ -161,9 +161,19 @@ where T: ClientContext + ConsumerContext {
                                 AppEvent::Left => self.handle_input_event(InputEvent::MoveCursor(Direction::LEFT)),
                                 AppEvent::Right => self.handle_input_event(InputEvent::MoveCursor(Direction::RIGHT)),
                                 AppEvent::Enter => {
-                                    self.handle_input_submission();
-                                    self.toggle_edit_mode(EditMode::Normal);
+                                    match self.state.app_mode {
+                                        AppMode::Consumer => {
+                                            // For consumer, we handle the command entered post hitting enter
+                                            self.handle_input_submission();
+                                            self.toggle_edit_mode(EditMode::Normal);
+                                        },
+                                        AppMode::Producer => {
+                                            // For Producer, we accept it as an input event
+                                            self.handle_input_event(InputEvent::NewChar('\n'));
+                                        }
+                                    }
                                 },
+                                AppEvent::Tab => self.handle_input_event(InputEvent::NewChar('\t')),
                                 _ => (),
                             }
                         },
@@ -187,7 +197,10 @@ where T: ClientContext + ConsumerContext {
 
     // Handles tab event which switches between the available tabs
     fn handle_tab(&mut self, back_tab: bool) {
-        self.layout.lock().main_layout.handle_tab(back_tab);
+        // enable edit mode if any of the input blocks is selected
+        if self.layout.lock().main_layout.handle_tab(back_tab) && self.state.app_mode == AppMode::Producer {
+            self.toggle_edit_mode(EditMode::Editing);
+        }
     }
 
     // Handles the list navigation for the list in focus 
@@ -457,18 +470,31 @@ where T: ClientContext + ConsumerContext {
         match mode {
             EditMode::Normal => {
                 self.state.edit_mode = EditMode::Normal;
+
+                match self.state.app_mode {
+                    AppMode::Consumer => self.layout.lock().footer_layout.input.normalise_border(),
+                    AppMode::Producer => self.layout.lock().main_layout.normalise_border(),
+                }
             },
             EditMode::Editing => {
                 self.state.edit_mode = EditMode::Editing;
-                self.layout.lock().footer_layout.handle_input_event(InputEvent::Reset);
-                self.layout.lock().footer_layout.handle_input_event(InputEvent::NewChar(':'));
+
+                // send relevant input events to footer only in consumer mode
+                if self.state.app_mode == AppMode::Consumer {
+                    self.layout.lock().footer_layout.input.highlight_border();
+                    self.layout.lock().footer_layout.handle_input_event(InputEvent::Reset);
+                    self.layout.lock().footer_layout.handle_input_event(InputEvent::NewChar(':'));
+                }
             }
         }
     }   
 
     // Handle input event
     fn handle_input_event(&mut self, input_event: InputEvent) {
-        self.layout.lock().footer_layout.handle_input_event(input_event);
+        match self.state.app_mode {
+            AppMode::Consumer => self.layout.lock().footer_layout.handle_input_event(input_event),
+            AppMode::Producer => self.layout.lock().main_layout.details_layout.handle_input_event(input_event),
+        }
     }
 
     // handle input submission

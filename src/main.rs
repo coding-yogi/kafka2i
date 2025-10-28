@@ -11,7 +11,7 @@ use ratatui::{prelude::CrosstermBackend, Terminal};
 use tokio::time;
 use tui::{app::App, app::AppEvent, events};
 
-use crate::{config::LogLevel, kafka::consumer::{Consumer, DefaultContext}};
+use crate::{kafka::consumer::{Consumer, DefaultContext}};
 use crate::config::Config;
 use crate::tui::events::TuiEvent;
 
@@ -145,15 +145,8 @@ async fn run<'a, T: ClientContext + ConsumerContext>(t: &'a mut Terminal<Crosste
                                     KeyCode::Down => sender.send(AppEvent::Down),
                                     KeyCode::Left => sender.send(AppEvent::Left),
                                     KeyCode::Right => sender.send(AppEvent::Right),
-                                    KeyCode::Esc => {
-                                        let res = sender.send(AppEvent::Esc);
-                                        if *should_quit.lock() {
-                                            break;
-                                        }
-                                        res
-                                    },
+                                    KeyCode::Esc => sender.send(AppEvent::Esc),
                                     KeyCode::Enter => sender.send(AppEvent::Enter),
-                                    KeyCode::Char(':') => sender.send(AppEvent::Edit),
                                     KeyCode::Char(input) => sender.send(AppEvent::Input(input)),
                                     KeyCode::Backspace => sender.send(AppEvent::Backspace),
                                     _ => Ok(())
@@ -170,6 +163,11 @@ async fn run<'a, T: ClientContext + ConsumerContext>(t: &'a mut Terminal<Crosste
                     } ,
                     // ignore any other events for now
                     _ => ()
+                }
+
+                // Check if app should exit
+                if *should_quit.lock() {
+                    break;
                 }
             }
         });

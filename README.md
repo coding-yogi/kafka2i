@@ -63,24 +63,29 @@ Consumer does not subscribe directly to any of the topics but assigns the requir
 - Supports OAuth based authentication
 
 ### Producer Mode
-- Not yet supported
+- WIP
 
 ### Admin Mode
 - No plans to support admin mode in near future
 
 ## Key Bindings  
-```
-TAB        - Navigate between brokers, consumergroups, topics & paritions lists  
-UP/DOWN    - Scroll through the list entries  
-M          - Scroll down the message pane  
-N          - Scroll up the message pane
-: (colon)  - Enter edit mode  
-LEFT       - Move to the previous offset of the selected parition  
-RIGHT      - Move to the next offset of the selected parition  
-H          - Open/Close help window  
-```
+`Mode` defines the mode for which the key binding apply
+| Key         | Mode     | Function |
+|-------------|----------|----------|
+|`TAB`        |both      | Navigate between the lists in `consumer` mode and the lists + inputs when in `producer` mode |
+|`UP`/`DOWN`  |both      | Scroll through the list entries |
+|`p`          |consumer  | Switch to `producer` mode |
+|`c`          |producer  | Switch to `consumer` mode |
+|`m`          |consumer  | Scroll down the message pane |
+|`n`          |consumer  | Scroll up the message pane |
+|`:` (colon)  |consumer  | Enter edit mode for `consumer` |
+|`LEFT`       |consumer  | Move to the previous offset of the selected parition |
+|`RIGHT`      |consumer  | Move to the next offset of the selected parition |
+|`h`          |both      | Open/Close help window |
+|`q`          |both      | Quit application (In `normal` mode) |
 
-## Commands
+
+## Consumer Commands
 Commands can be entered when in edit mode. Press `:` to enter edit mode
 
 `offset!<number>`- Setting the offset for a selected parition to retrieve message at the set offset. E.g. `offset!7656`  
