@@ -1,10 +1,8 @@
-use std::{char, marker::PhantomData};
-
-use log::info;
+use std::char;
 use ratatui::{
     layout::Constraint, prelude::Rect, style::{palette::tailwind, Color, Modifier, Style, Stylize}, symbols, text::{self, Span, Text}, widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table, TableState, Tabs, Wrap}, Frame
 };
-use tui_input::{Input, InputRequest};
+use tui_textarea::{CursorMove, TextArea};
 
 pub const HIGHLIGHT_COLOR: Color = Color::Yellow;
 pub const NORMAL_COLOR: Color = Color::Green;
@@ -235,7 +233,6 @@ fn get_list<'a>(name: String, list_items: Vec<ListItem<'a>>) -> List<'a> {
         .highlight_symbol("> ")
 }
 
-
 impl <'a> AppWidget for UIList<'a> {
     fn render(&mut self, frame: &mut Frame, area: Rect) {
         self.area = area;
@@ -251,109 +248,6 @@ impl <'a> AppWidget for UIList<'a> {
         self.list = self.list.clone().block(create_block(NORMAL_COLOR, self.name.clone(), true));
          self.focused = false
     } 
-}
-
-// trait ParagraphWidget
-pub trait ParagraphWidget<'a>: AppWidget {
-    fn new(name: String, text: Text<'a>) -> Self;
-    fn update(&mut self, text: Text<'a>);
-    fn downcast_to_paragraph(&mut self) -> Option<&mut UIParagraph<'a>> {
-        None
-    }
-    fn downcast_to_paragraph_with_scrollbar(&mut self) -> Option<&mut UIParagraphWithScrollbar<'a>> {
-        None
-    }
-}
-
-const DEFAULT_SCROLLBAR_ORIENTATION: ScrollbarOrientation = ScrollbarOrientation::VerticalRight;
-
-#[derive(Clone)]
-pub struct UIParagraphWithScrollbar<'a> {
-    paragraph: UIParagraph<'a>,
-    scrollbar: UIScrollbar<'a>,
-}
-
-impl <'a> UIParagraphWithScrollbar<'a> {
-    pub fn new(name: String, text: Text<'a>) -> UIParagraphWithScrollbar<'a> {
-        let content_length = text.lines.len();
-
-        UIParagraphWithScrollbar {
-            paragraph: UIParagraph::new(name, text),
-            scrollbar: UIScrollbar::new(DEFAULT_SCROLLBAR_ORIENTATION, content_length),
-        }
-    }
-
-    pub fn new_with_scrollbar_orientation(name: String, text: Text<'a>, orientation: ScrollbarOrientation) -> UIParagraphWithScrollbar<'a> {
-        let content_length = text.lines.len();
-
-        UIParagraphWithScrollbar {
-            paragraph: UIParagraph::new(name, text),
-            scrollbar: UIScrollbar::new(orientation, content_length),
-        }
-    }
-
-    pub fn update(&mut self, text: Text<'a>) {
-        let content_height = text.lines.len();
-        self.paragraph.update(text); 
-        self.scrollbar.update(content_height);
-    }
-
-    pub fn update_with_title(&mut self, title: String, text: Text<'a>) {
-        let content_height = text.lines.len();
-        self.paragraph.update_with_name(title,text); 
-        self.scrollbar.update(content_height);
-    }
-
-    pub fn scroll_down(&mut self) {
-        self.scrollbar.scroll_down_once();
-        self.paragraph.scroll((self.scrollbar.scroll_state,0));
-    }
-
-    pub fn scroll_up(&mut self) {
-        self.scrollbar.scroll_up_once();
-        self.paragraph.scroll((self.scrollbar.scroll_state,0));
-    }
-
-    pub fn scroll_till_end(&mut self) {
-        self.scrollbar.scroll_down_till_end(self.paragraph.height() as usize);
-        self.paragraph.scroll((self.scrollbar.scroll_state,0));
-    }
-
-    pub fn scroll_till_start(&mut self) {
-        self.scrollbar.scroll_up_till_start();
-        self.paragraph.scroll((self.scrollbar.scroll_state,0));
-    }
-
-
-}
-
-impl <'a> AppWidget for UIParagraphWithScrollbar<'a> {
-    fn render(&mut self, frame: &mut Frame, area: Rect) {
-        self.paragraph.render(frame, area);
-        self.scrollbar.render(frame, area);
-    }
-
-    fn normalise_border(&mut self) {
-        self.paragraph.normalise_border();
-    }
-
-    fn highlight_border(&mut self) {
-        self.paragraph.highlight_border();
-    }
-}
-
-impl <'a> ParagraphWidget<'a> for UIParagraphWithScrollbar<'a> {
-    fn new(name: String, text: Text<'a>) -> Self {
-        UIParagraphWithScrollbar::new(name, text)
-    }
-
-    fn update(&mut self, text: Text<'a>) {
-        self.update(text);
-    }
-
-    fn downcast_to_paragraph_with_scrollbar(&mut self) -> Option<&mut UIParagraphWithScrollbar<'a>> {
-        Some(self)
-    }
 }
 
 // UiParagraph
@@ -392,14 +286,6 @@ impl <'a> UIParagraph<'a> {
             .wrap(Wrap { trim: false })
             .block(create_block(HIGHLIGHT_COLOR, name, true))
     }
-
-    pub fn scroll(&mut self, offset: (u16, u16)) {
-       self.paragraph =  self.paragraph.clone().scroll(offset);
-    }
-
-    pub fn height(&self) -> u16 {
-        self.area.height
-    }
 }
 
 impl <'a> AppWidget for UIParagraph<'a> {
@@ -414,20 +300,6 @@ impl <'a> AppWidget for UIParagraph<'a> {
 
     fn highlight_border(&mut self) {
         self.paragraph = self.paragraph.clone().block(create_block(HIGHLIGHT_COLOR, self.name.clone(), true));
-    }
-}
-
-impl <'a> ParagraphWidget<'a> for UIParagraph<'a> {
-    fn new(name: String, text: Text<'a>) -> Self {
-        UIParagraph::new(name, text)
-    }
-
-    fn update(&mut self, text: Text<'a>) {
-        self.update(text);
-    }
-
-    fn downcast_to_paragraph(&mut self) -> Option<&mut UIParagraph<'a>> {
-        Some(self)
     }
 }
 
@@ -450,77 +322,59 @@ pub enum InputEvent {
     Reset,
 }
 
-#[derive(Clone)]
-pub struct UIInput<'a, T>
-where T: ParagraphWidget<'a> + Clone{
-    paragraph: T,
-    text_area: Input,
+pub struct UITextArea<'a> {
+    name: String,
+    text_area: TextArea<'a>,
+    area: Rect,
     focused: bool,
-    _marker: PhantomData<&'a T>,
 }
 
-impl <'a, T> UIInput<'a, T>
-where T: ParagraphWidget<'a> + Clone {
-    pub fn new(name: String) -> UIInput<'a, T> {
-        UIInput {
-            paragraph: T::new(name, "".into()),
-            text_area: Input::default(),
-            _marker: PhantomData,
+impl <'a> UITextArea<'a> {
+    pub fn new(name: String) -> UITextArea<'a> {
+        let mut text_area = TextArea::default();
+        text_area.set_block(create_block(NORMAL_COLOR, name.clone(), true));
+        text_area.set_cursor_line_style(Style::default());
+        text_area.set_cursor_style(Style::default());
+
+        UITextArea {
+            name: name,
+            text_area: text_area,
+            area: Rect::default(),
             focused: false,
         }
     }
 
     pub fn handle_event(&mut self, event: InputEvent) {
-        if self.focused {
-            match event {
-                InputEvent::NewChar(c) => self.enter_char(c),
-                InputEvent::RemovePrevChar => self.remove_previous_char(),
-                InputEvent::RemoveNextChar => (),
-                InputEvent::MoveCursor(d) => self.move_cursor(d),
-                InputEvent::Reset => self.reset(),
-            }
+        match event {
+            InputEvent::NewChar(c) => self.text_area.insert_char(c),
+            InputEvent::RemovePrevChar => { self.text_area.delete_char(); },
+            InputEvent::RemoveNextChar => { self.text_area.delete_next_char(); },
+            InputEvent::MoveCursor(d) => {
+                match d {
+                    Direction::LEFT => self.text_area.move_cursor(CursorMove::Back),
+                    Direction::RIGHT => self.text_area.move_cursor(CursorMove::Forward),
+                    Direction::UP => self.text_area.move_cursor(CursorMove::Up),
+                    Direction::DOWN => self.text_area.move_cursor(CursorMove::Down),
+                }
+            },
+            InputEvent::Reset => self.reset(),
         }
     }
 
     fn reset(&mut self) {
-        self.text_area.reset();
-        self.paragraph.update("".into());
+        log::info!("called reset");
+        self.update_title_and_text(self.name.clone(), "".to_string())
     }
 
-    fn enter_char(&mut self, new_char: char) {
-        self.text_area.handle(InputRequest::InsertChar(new_char));
-        self.paragraph.update(self.text_area.value().to_string().into());
-
-        //If input has scrollable paraagraph, when entering character, 
-        //if the length exceeds viewports height, then we want to scroll
-        self.scroll_to_end();
+    pub fn update_text(&mut self, text: String) {
+        self.update_title_and_text(self.name.clone(), text);
     }
 
-    fn remove_previous_char(&mut self) {
-        self.text_area.handle(InputRequest::DeletePrevChar);
-        self.paragraph.update(self.text_area.value().to_string().into());
-    }
-
-    fn move_cursor(&mut self, direction: Direction) {
-        match direction {
-            Direction::LEFT => {
-                self.text_area.handle(InputRequest::GoToPrevChar);
-            },
-            Direction::RIGHT => {
-                self.text_area.handle(InputRequest::GoToNextChar);
-            },
-            Direction::UP => self.scroll_up(),
-            Direction::DOWN => self.scroll_down(),
-        };
-    }
-
-    pub fn value(&mut self) -> String {
-        self.text_area.value().to_string()
-    }
-
-    pub fn set_value(&mut self, value: &'a str) {
-        self.text_area = self.text_area.clone().with_value(value.to_string());
-        self.paragraph.update(value.into());
+    pub fn update_title_and_text(&mut self, title: String, text: String) {
+        self.text_area = TextArea::new(text.split('\n').map(|s| s.to_string()).collect());
+        self.text_area.set_block(create_block(NORMAL_COLOR, title, true));
+        self.text_area.set_cursor_line_style(Style::default());
+        self.text_area.set_cursor_style(Style::default());
     }
 
     pub fn is_focused(&self) -> bool {
@@ -528,125 +382,34 @@ where T: ParagraphWidget<'a> + Clone {
     }
 
     pub fn scroll_up(&mut self) {
-        if let Some(paragraph) = self.paragraph.downcast_to_paragraph_with_scrollbar() {
-            paragraph.scroll_up();
-        }
+        self.text_area.scroll((-1, 0));
     }
 
     pub fn scroll_down(&mut self) {
-        if let Some(paragraph) = self.paragraph.downcast_to_paragraph_with_scrollbar() {
-            paragraph.scroll_down();
-        }
+        self.text_area.scroll((1, 0));
     }
 
-    pub fn scroll_to_end(&mut self) {
-        if let Some(paragraph) = self.paragraph.downcast_to_paragraph_with_scrollbar() {
-            paragraph.scroll_till_end();
-        }
-    }
-
-     pub fn scroll_to_start(&mut self) {
-        if let Some(paragraph) = self.paragraph.downcast_to_paragraph_with_scrollbar() {
-            paragraph.scroll_till_start();
-        }
+    pub fn text(&self) -> String {
+        self.text_area.lines().join("\n")
     }
 }
 
-impl <'a, T> AppWidget for UIInput<'a, T>
-where T: ParagraphWidget<'a> + Clone {
-    fn render(&mut self, frame: &mut Frame, area: Rect) {
-        if self.focused {
-            let width = area.width.max(3) - 3;
-            let scroll = self.text_area.visual_scroll(width as usize);
-            let mut x = self.text_area.visual_cursor().max(scroll) - scroll + 1;
-            let input_lines: Vec<&str> = self.text_area.value().split('\n').collect();
-            if input_lines.len() != 0 {
-                x = input_lines[input_lines.len()-1].len() + 1;
-            }
-
-            // we do not want the cursor to go past the height of the widget
-            // so we will consider min of lines or height of the widget
-            // we will reduce 2 from height to account for borders
-            let y = (area.height-2).min(input_lines.len() as u16);
-            frame.set_cursor_position((area.x + x as u16, area.y + y));
-        }
-
-        self.paragraph.render(frame, area);
-    }
-
-    fn normalise_border(&mut self) {
-        self.paragraph.normalise_border();
-        self.focused = false;
-    }
-
-    fn highlight_border(&mut self) {
-        self.paragraph.highlight_border();
-        self.focused = true;
-    }
-}
-
-#[derive(Clone)]
-pub struct UIScrollbar<'a> {
-    scrollbar: Scrollbar<'a>,
-    area: Rect,
-    state: ScrollbarState,
-    scroll_state: u16,
-    content_length: usize,
-}
-
-impl <'a> UIScrollbar<'a> {
-    pub fn new(orientation: ScrollbarOrientation, content_length: usize) -> UIScrollbar<'a> {
-        UIScrollbar { 
-            scrollbar: Scrollbar::new(orientation),
-            area: Rect::default(), 
-            state: ScrollbarState::new(content_length),
-            scroll_state: 0,
-            content_length,
-        }
-    }
-
-    pub fn update(&mut self, content_length: usize) {
-        self.state = ScrollbarState::new(content_length);
-        self.scroll_state = 0;
-        self.content_length = content_length;
-    }
-
-    pub fn scroll_down_once(&mut self) {
-        //self.scroll_state = self.scroll_state.saturating_add(1).min(self.content_length.saturating_sub(1) as u16);
-        self.scroll_state = self.scroll_state.saturating_add(1) as u16;
-        self.state = self.state.position(self.scroll_state.into());
-    }
-
-    pub fn scroll_down_till_end(&mut self, size: usize) {
-        // compensate for borders
-        let size_without_borders = size - 3;
-        if self.content_length >= size_without_borders {
-            self.scroll_state = (self.content_length-size_without_borders).saturating_sub(1) as u16;
-            self.state = self.state.position(self.scroll_state.into());
-        }
-    }
-
-    pub fn scroll_up_once(&mut self) {
-        self.scroll_state = self.scroll_state.saturating_sub(1);
-        self.state = self.state.position(self.scroll_state.into());
-    }
-
-    pub fn scroll_up_till_start(&mut self) {
-        self.scroll_state = 0;
-        self.state = self.state.position(self.scroll_state.into());
-    }
-}
-
-impl <'a> AppWidget for UIScrollbar<'a> {
+impl <'a> AppWidget for UITextArea<'a> {
     fn render(&mut self, frame: &mut Frame, area: Rect) {
         self.area = area;
-        frame.render_stateful_widget::<Scrollbar>(self.scrollbar.clone(), self.area, &mut self.state);
+        frame.render_widget::<&TextArea>(&self.text_area, self.area);
     }
 
     fn normalise_border(&mut self) {
+        self.focused = false;
+        self.text_area.set_block(create_block(NORMAL_COLOR, self.name.clone(), true));
+        self.text_area.set_cursor_style(Style::default());
     }
 
     fn highlight_border(&mut self) {
+        self.focused = true;
+        self.text_area.set_block(create_block(HIGHLIGHT_COLOR, self.name.clone(), true));
+        self.text_area.set_cursor_style(Style::default().bg(Color::Green));
     }
 }
 

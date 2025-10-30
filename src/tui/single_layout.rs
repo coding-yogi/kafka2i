@@ -1,8 +1,8 @@
-use ratatui::{layout::{Constraint, Layout, Rect}, style::Stylize, text::{Line, Span, Text}, widgets::{Clear, ScrollbarOrientation}, Frame};
+use ratatui::{layout::{Constraint, Layout, Rect}, style::Stylize, text::{Line, Span, Text}, widgets::Clear, Frame};
 use strum::Display;
-use crate::kafka::metadata::Metadata;
+use crate::{kafka::metadata::Metadata, tui::widgets::UITextArea};
 
-use super::widgets::{AppWidget, Direction, InputEvent, UIInput, UIList, UIParagraph, UIParagraphWithScrollbar, UITable};
+use super::widgets::{AppWidget, Direction, InputEvent, UIList, UIParagraph, UITable};
 
 const APP_NAME: &str = "Kafka2i - TUI for Kafka";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -291,12 +291,11 @@ pub struct DetailsLayout<'a> {
     pub metadata: UITable<'a>,
 
     // consumer mode fields
-    pub consumed_message: UIParagraphWithScrollbar<'a>,
+    pub consumed_message: UITextArea<'a>,
 
-    // producer mode fields
-    pub key: UIInput<'a, UIParagraph<'a>>,
-    pub headers: UIInput<'a, UIParagraphWithScrollbar<'a>>,
-    pub payload: UIInput<'a, UIParagraphWithScrollbar<'a>>,
+    pub key: UITextArea<'a>,
+    pub headers: UITextArea<'a>,
+    pub payload: UITextArea<'a>
 }
 
 impl <'a> DetailsLayout<'a> {
@@ -308,11 +307,10 @@ impl <'a> DetailsLayout<'a> {
         DetailsLayout {
             mode: AppMode::default(),
             metadata: UITable::new(column_headers, column_constraints, data),
-            consumed_message: UIParagraphWithScrollbar::new_with_scrollbar_orientation("Message".to_string(),
-            "".into(), ScrollbarOrientation::VerticalRight),
-            key: UIInput::new("Key".to_string()),
-            headers: UIInput::new("Headers".to_string()),
-            payload: UIInput::new("Payload".to_string())
+            consumed_message: UITextArea::new("Message".to_string()),
+            key: UITextArea::new("Key".to_string()),
+            headers: UITextArea::new("Headers".to_string()),
+            payload: UITextArea::new("Payload".to_string())
         }
     }
 
@@ -351,7 +349,7 @@ impl <'a> DetailsLayout<'a> {
 pub struct FooterLayout<'a> {
     pub mode: UIParagraph<'a>,
     pub footer: UIParagraph<'a>,
-    pub input: UIInput<'a, UIParagraph<'a>>,
+    pub input: UITextArea<'a>,
 }
 
 impl <'a> FooterLayout<'a> {
@@ -361,7 +359,7 @@ impl <'a> FooterLayout<'a> {
             footer: UIParagraph::new("".to_string(), Text::from(vec![
                 Span::from(APP_FOOTER).gray().into_centered_line(),
             ])),
-            input: UIInput::new("".to_string()),
+            input: UITextArea::new("".to_string()),
         }
     }
 
@@ -376,11 +374,11 @@ impl <'a> FooterLayout<'a> {
     }
 
     pub fn input_value(&mut self) -> String {
-        self.input.value()
+        self.input.text()
     }
 
     pub fn set_value(&mut self, value: &'a str) {
-        self.input.set_value(value);
+        self.input.update_text(value.to_string());
     }
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
