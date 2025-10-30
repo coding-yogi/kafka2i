@@ -1,6 +1,6 @@
-use std::{any::Any, char, marker::PhantomData};
+use std::{char, marker::PhantomData};
 
-use log::{debug, info};
+use log::info;
 use ratatui::{
     layout::Constraint, prelude::Rect, style::{palette::tailwind, Color, Modifier, Style, Stylize}, symbols, text::{self, Span, Text}, widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table, TableState, Tabs, Wrap}, Frame
 };
@@ -304,12 +304,12 @@ impl <'a> UIParagraphWithScrollbar<'a> {
         self.scrollbar.update(content_height);
     }
 
-    pub fn handle_down(&mut self) {
+    pub fn scroll_down(&mut self) {
         self.scrollbar.scroll_down_once();
         self.paragraph.scroll((self.scrollbar.scroll_state,0));
     }
 
-    pub fn handle_up(&mut self) {
+    pub fn scroll_up(&mut self) {
         self.scrollbar.scroll_up_once();
         self.paragraph.scroll((self.scrollbar.scroll_state,0));
     }
@@ -454,7 +454,7 @@ pub enum InputEvent {
 pub struct UIInput<'a, T>
 where T: ParagraphWidget<'a> + Clone{
     paragraph: T,
-    input: Input,
+    text_area: Input,
     focused: bool,
     _marker: PhantomData<&'a T>,
 }
@@ -464,56 +464,79 @@ where T: ParagraphWidget<'a> + Clone {
     pub fn new(name: String) -> UIInput<'a, T> {
         UIInput {
             paragraph: T::new(name, "".into()),
-            input: Input::default(),
+            text_area: Input::default(),
             _marker: PhantomData,
             focused: false,
         }
     }
 
     pub fn handle_event(&mut self, event: InputEvent) {
-        match event {
-            InputEvent::NewChar(c) => self.enter_char(c),
-            InputEvent::RemovePrevChar => self.remove_previous_char(),
-            InputEvent::RemoveNextChar => (),
-            InputEvent::MoveCursor(d) => self.move_cursor(d),
-            InputEvent::Reset => self.reset(),
+        if self.focused {
+            match event {
+                InputEvent::NewChar(c) => self.enter_char(c),
+                InputEvent::RemovePrevChar => self.remove_previous_char(),
+                InputEvent::RemoveNextChar => (),
+                InputEvent::MoveCursor(d) => self.move_cursor(d),
+                InputEvent::Reset => self.reset(),
+            }
         }
     }
 
     fn reset(&mut self) {
-        self.input.reset();
+        self.text_area.reset();
         self.paragraph.update("".into());
     }
 
     fn enter_char(&mut self, new_char: char) {
-        self.input.handle(InputRequest::InsertChar(new_char));
-        self.paragraph.update(self.input.value().to_string().into());
+        self.text_area.handle(InputRequest::InsertChar(new_char));
+        self.paragraph.update(self.text_area.value().to_string().into());
+
+        //If input has scrollable paraagraph, when entering character, 
+        //if the length exceeds viewports height, then we want to scroll
+        self.scroll_to_end();
     }
 
     fn remove_previous_char(&mut self) {
-        self.input.handle(InputRequest::DeletePrevChar);
-        self.paragraph.update(self.input.value().to_string().into());
+        self.text_area.handle(InputRequest::DeletePrevChar);
+        self.paragraph.update(self.text_area.value().to_string().into());
     }
 
     fn move_cursor(&mut self, direction: Direction) {
         match direction {
-            Direction::LEFT => self.input.handle(InputRequest::GoToPrevChar),
-            Direction::RIGHT => self.input.handle(InputRequest::GoToNextChar),
-            _ => None,
+            Direction::LEFT => {
+                self.text_area.handle(InputRequest::GoToPrevChar);
+            },
+            Direction::RIGHT => {
+                self.text_area.handle(InputRequest::GoToNextChar);
+            },
+            Direction::UP => self.scroll_up(),
+            Direction::DOWN => self.scroll_down(),
         };
     }
 
     pub fn value(&mut self) -> String {
-        self.input.value().to_string()
+        self.text_area.value().to_string()
     }
 
     pub fn set_value(&mut self, value: &'a str) {
-        self.input = self.input.clone().with_value(value.to_string());
+        self.text_area = self.text_area.clone().with_value(value.to_string());
         self.paragraph.update(value.into());
     }
 
     pub fn is_focused(&self) -> bool {
         self.focused
+    }
+
+    pub fn scroll_up(&mut self) {
+        if let Some(paragraph) = self.paragraph.downcast_to_paragraph_with_scrollbar() {
+            paragraph.scroll_up();
+        }
+    }
+
+    pub fn scroll_down(&mut self) {
+        if let Some(paragraph) = self.paragraph.downcast_to_paragraph_with_scrollbar() {
+            paragraph.scroll_down();
+        }
     }
 
     pub fn scroll_to_end(&mut self) {
@@ -534,9 +557,9 @@ where T: ParagraphWidget<'a> + Clone {
     fn render(&mut self, frame: &mut Frame, area: Rect) {
         if self.focused {
             let width = area.width.max(3) - 3;
-            let scroll = self.input.visual_scroll(width as usize);
-            let mut x = self.input.visual_cursor().max(scroll) - scroll + 1;
-            let input_lines: Vec<&str> = self.input.value().split('\n').collect();
+            let scroll = self.text_area.visual_scroll(width as usize);
+            let mut x = self.text_area.visual_cursor().max(scroll) - scroll + 1;
+            let input_lines: Vec<&str> = self.text_area.value().split('\n').collect();
             if input_lines.len() != 0 {
                 x = input_lines[input_lines.len()-1].len() + 1;
             }
@@ -597,7 +620,6 @@ impl <'a> UIScrollbar<'a> {
     pub fn scroll_down_till_end(&mut self, size: usize) {
         // compensate for borders
         let size_without_borders = size - 3;
-        info!("content length {}, size {}", self.content_length, size);
         if self.content_length >= size_without_borders {
             self.scroll_state = (self.content_length-size_without_borders).saturating_sub(1) as u16;
             self.state = self.state.position(self.scroll_state.into());

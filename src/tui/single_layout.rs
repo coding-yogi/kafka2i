@@ -341,10 +341,8 @@ impl <'a> DetailsLayout<'a> {
             self.key.handle_event(event);
         } else if self.headers.is_focused() {
             self.headers.handle_event(event);
-            self.headers.scroll_to_end();
         } else if self.payload.is_focused() {
             self.payload.handle_event(event);
-            self.headers.scroll_to_end();
         }
     }
 }

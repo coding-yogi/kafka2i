@@ -160,6 +160,8 @@ where T: ClientContext + ConsumerContext {
                                 AppEvent::Backspace => self.handle_input_event(InputEvent::RemovePrevChar),
                                 AppEvent::Left => self.handle_input_event(InputEvent::MoveCursor(Direction::LEFT)),
                                 AppEvent::Right => self.handle_input_event(InputEvent::MoveCursor(Direction::RIGHT)),
+                                AppEvent::Up => self.handle_input_event(InputEvent::MoveCursor(Direction::UP)),
+                                AppEvent::Down => self.handle_input_event(InputEvent::MoveCursor(Direction::DOWN)),
                                 AppEvent::Enter => {
                                     match self.state.app_mode {
                                         AppMode::Consumer => {
@@ -298,8 +300,8 @@ impl <T> App<'_, T>
 where T: ClientContext + ConsumerContext {
     fn handle_message_scroll(&mut self, direction: Direction) {
         match direction {
-            Direction::DOWN => self.layout.lock().main_layout.details_layout.consumed_message.handle_down(),
-            Direction::UP => self.layout.lock().main_layout.details_layout.consumed_message.handle_up(),
+            Direction::DOWN => self.layout.lock().main_layout.details_layout.consumed_message.scroll_down(),
+            Direction::UP => self.layout.lock().main_layout.details_layout.consumed_message.scroll_up(),
             _ => ()
         }
     }

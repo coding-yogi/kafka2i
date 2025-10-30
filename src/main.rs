@@ -78,8 +78,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
             // is to avoid message consumer from being locked for longer time during fetching of metadata
             // thus avoiding the lag on TUI
             log::debug!("refreshing metadata");
-            let metadata = message_consumer_clone.lock().fetch_metadata().unwrap();
-            let consumer_groups = message_consumer_clone.lock().fetch_groups().unwrap();
+            let metadata = match message_consumer_clone.lock().fetch_metadata() {
+                Ok(m) => m,
+                Err(e) => {
+                    log::error!("error while fetching metadata {}, will continue ....", e);
+                    continue;
+                }
+            };
+
+            let consumer_groups = match message_consumer_clone.lock().fetch_groups() {
+                Ok(cg) => cg,
+                Err(e) => {
+                    log::error!("error while fetching consumer groups {}, will conrinue",e);
+                    continue;
+                }
+            };
+
             message_consumer_clone.lock().update_metadata(metadata, consumer_groups);
 
             // sleep for refresh duration
