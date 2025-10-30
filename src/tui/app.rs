@@ -8,7 +8,6 @@ use parking_lot::Mutex;
 use rdkafka::{consumer::ConsumerContext, ClientContext};
 use strum::{self, Display, EnumString};
 use crate::kafka::consumer::{Consumer, ConsumerError, KafkaMessage};
-use crate::tui::app;
 use crate::tui::single_layout::AppMode;
 use crate::tui::widgets::{AppWidget, Direction};
 
@@ -28,10 +27,10 @@ pub enum AppEvent {
     Left,
     Right,
     Esc,
-    Edit,
     Input(char),
     Backspace,
     Enter,
+    Delete,
 }
 
 // AppCMDs
@@ -118,11 +117,6 @@ where T: ClientContext + ConsumerContext
 // This impl block for the app event handler
 impl <T> App<'_, T>
 where T: ClientContext + ConsumerContext {
-    // should_quit is defined at app level so its easier to call from main method
-    pub fn should_quit(&self) -> bool {
-        self.state.should_quit
-    }
-    
     // Event handler which defines the high level handlers for every type of event handled in TUI
     pub fn event_handler(&mut self) {
         loop {
@@ -158,6 +152,7 @@ where T: ClientContext + ConsumerContext {
                                 AppEvent::Esc => self.toggle_edit_mode(EditMode::Normal),
                                 AppEvent::Input(char) => self.handle_input_event(InputEvent::NewChar(char)),
                                 AppEvent::Backspace => self.handle_input_event(InputEvent::RemovePrevChar),
+                                AppEvent::Delete => self.handle_input_event(InputEvent::RemoveNextChar),
                                 AppEvent::Left => self.handle_input_event(InputEvent::MoveCursor(Direction::LEFT)),
                                 AppEvent::Right => self.handle_input_event(InputEvent::MoveCursor(Direction::RIGHT)),
                                 AppEvent::Up => self.handle_input_event(InputEvent::MoveCursor(Direction::UP)),

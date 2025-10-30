@@ -3,7 +3,7 @@ use std::{error::Error, io::Stderr, sync::Arc, thread, time::Duration};
 use clap::Parser;
 use crossbeam::channel::{bounded, unbounded};
 use crossterm::event::{KeyEventKind, KeyCode};
-use kafka::consumer::StatsContext;
+//use kafka::consumer::StatsContext;
 use parking_lot::Mutex;
 use rdkafka::{consumer::ConsumerContext, ClientConfig, ClientContext, Statistics};
 use crossterm::{terminal::{enable_raw_mode, EnterAlternateScreen, disable_raw_mode, LeaveAlternateScreen}, execute, event::DisableMouseCapture};
@@ -163,6 +163,7 @@ async fn run<'a, T: ClientContext + ConsumerContext>(t: &'a mut Terminal<Crosste
                                     KeyCode::Enter => sender.send(AppEvent::Enter),
                                     KeyCode::Char(input) => sender.send(AppEvent::Input(input)),
                                     KeyCode::Backspace => sender.send(AppEvent::Backspace),
+                                    KeyCode::Delete => sender.send(AppEvent::Delete),
                                     _ => Ok(())
                                 };
                             }

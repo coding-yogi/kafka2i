@@ -1,6 +1,23 @@
 use std::char;
 use ratatui::{
-    layout::Constraint, prelude::Rect, style::{palette::tailwind, Color, Modifier, Style, Stylize}, symbols, text::{self, Span, Text}, widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table, TableState, Tabs, Wrap}, Frame
+    layout::Constraint, 
+    prelude::Rect, 
+    style::{Color, Modifier, Style, Stylize}, 
+    symbols, 
+    text::{self, Span, Text},
+     widgets::{
+        Block,
+        Borders,
+        List,
+        ListItem,
+        ListState,
+        Paragraph,
+        Row,
+        Table,
+        TableState,
+        Wrap
+    }, 
+    Frame
 };
 use tui_textarea::{CursorMove, TextArea};
 
@@ -18,104 +35,6 @@ pub trait AppWidget {
     fn render(&mut self, frame: &mut Frame, area: Rect);
     fn highlight_border(&mut self);
     fn normalise_border(&mut self);
-}
-
-// UIWidget contains the specific widget type and the Rect which holds the Widget
-#[derive(Clone)]
-pub struct UIBlock<'a> {
-    block: Block<'a>,
-    area: Rect,
-}
-
-impl <'a> UIBlock<'a> {
-    pub fn new(name: &'a str) -> UIBlock<'a> {
-        UIBlock{
-            area: Rect::default(),
-            block: Block::default()
-                .borders(Borders::ALL)
-                .border_set(symbols::border::ROUNDED)
-                .border_style(Style::new().fg(NORMAL_COLOR)).title(name)
-        }
-    }
-}
-
-impl <'a> AppWidget for UIBlock<'a> {
-     fn render(&mut self, frame: &mut Frame, area: Rect) {
-        self.area = area;
-        frame.render_widget::<&Block>(&self.block, self.area);
-    }
-
-    fn highlight_border(&mut self) {
-        self.block = self.block.clone().border_style(Style::new().fg(HIGHLIGHT_COLOR))
-    }
-
-    fn normalise_border(&mut self) {
-        self.block = self.block.clone().border_style(Style::new().fg(NORMAL_COLOR));
-    }
-}
-
-#[derive(Clone)]
-pub struct UITabs<'a> {
-    titles: &'a [&'a str],
-    state: usize,
-    area: Rect,
-    tabs: Tabs<'a>,
-}
-
-impl <'a> UITabs<'a> {
-    pub fn new(name: &'a str, titles: &'a[&'a str]) -> UITabs<'a> {
-
-        let highlight_style = (Color::default(), tailwind::GREEN.c700);
-
-        UITabs {
-            titles,
-            state: 0,
-            area: Rect::default(),
-            tabs: Tabs::new(titles.to_vec())
-                .block(Block::default()
-                       .borders(Borders::LEFT | Borders::RIGHT | Borders::TOP)
-                       .border_style(Style::new().fg(NORMAL_COLOR)).title(name))
-                .select(0)
-                .highlight_style(highlight_style),
-        }
-    }
-
-    pub fn select(&mut self, idx: usize) {
-        self.tabs = self.tabs.clone().select(idx);
-        self.state = idx;
-    }
-
-    pub fn selected(&self) -> usize {
-        self.state
-    }
-
-    pub fn selected_title(&self) -> &str {
-        self.titles[self.state]
-    }
-
-    pub fn handle_tab(&mut self) {
-        let no_of_titles = self.titles.len();
-        if self.state == no_of_titles - 1 {
-            self.select(0);
-        } else {
-            self.select(self.state.saturating_add(1));
-        }
-    }
-}
-
-impl <'a> AppWidget for UITabs<'a> {
-    fn render(&mut self, frame: &mut Frame, area: Rect) {
-        self.area = area;
-        frame.render_widget::<&Tabs>(&self.tabs, self.area);
-    }
-
-    fn highlight_border(&mut self) {
-        // No implementation required
-    }
-
-    fn normalise_border(&mut self) {
-        // No implementation required
-    }
 }
 
 // UIList conatins the stateful widget's type and Rect which holds the widget
@@ -163,10 +82,6 @@ impl <'a> UIList <'a> {
         self.state = ListState::default();
     }
     
-    pub fn select(&mut self, idx: Option<usize>) {
-        self.state.select(idx)
-    }
-
     pub fn selected_item(&self) -> Option<String> {
         if let Some(idx) = self.state() {
             if let Some(item) = self.items.get(idx) {
