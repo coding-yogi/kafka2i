@@ -16,7 +16,7 @@ use super::{single_layout::{self, AppLayout, BROKERS_LIST, CONSUMER_GROUPS_LIST,
 #[derive(PartialEq)]
 enum EditMode {
     Normal,
-    Editing
+    Insert
 }
 
 pub enum AppEvent {
@@ -36,9 +36,9 @@ pub enum AppEvent {
 // AppCMDs
 #[derive(Clone, Debug, Display, PartialEq, EnumString)]
 enum Command {
-    #[strum(serialize = ":offset")]
+    #[strum(serialize = "offset")]
     Offset,
-    #[strum(serialize = ":ts")]
+    #[strum(serialize = "ts")]
     Timestamp,
     Invalid,
 }
@@ -132,12 +132,13 @@ where T: ClientContext + ConsumerContext {
                                 AppEvent::Left => self.handle_offset_navigation(Direction::LEFT),
                                 AppEvent::Right => self.handle_offset_navigation(Direction::RIGHT),
                                 AppEvent::Input(char) => match char {
-                                    ':' => self.toggle_edit_mode(EditMode::Editing),
+                                    'i' => self.toggle_edit_mode(EditMode::Insert),
                                     'm' => self.handle_message_scroll(Direction::DOWN),
                                     'n' => self.handle_message_scroll(Direction::UP),
-                                    'h' => self.handle_help_command(),
+                                    'h' => self.help_window(),
                                     'c' => self.set_app_mode(single_layout::AppMode::Consumer),
                                     'p' => self.set_app_mode(single_layout::AppMode::Producer),
+                                    'f' => self.file_explorer(),
                                     'q' | 'Q' => {
                                         self.state.should_quit = true;
                                         break;
@@ -147,7 +148,7 @@ where T: ClientContext + ConsumerContext {
                                 _ => (),
                             }
                         },
-                        EditMode::Editing => {
+                        EditMode::Insert => {
                             match event {
                                 AppEvent::Esc => self.toggle_edit_mode(EditMode::Normal),
                                 AppEvent::Input(char) => self.handle_input_event(InputEvent::NewChar(char)),
@@ -196,7 +197,7 @@ where T: ClientContext + ConsumerContext {
     fn handle_tab(&mut self, back_tab: bool) {
         // enable edit mode if any of the input blocks is selected
         if self.layout.lock().main_layout.handle_tab(back_tab) && self.state.app_mode == AppMode::Producer {
-            self.toggle_edit_mode(EditMode::Editing);
+            //self.toggle_edit_mode(EditMode::Editing);
         }
     }
 
@@ -470,17 +471,20 @@ where T: ClientContext + ConsumerContext {
 
                 match self.state.app_mode {
                     AppMode::Consumer => self.layout.lock().footer_layout.input.normalise_border(),
-                    AppMode::Producer => self.layout.lock().main_layout.normalise_border(),
+                    AppMode::Producer => self.layout().lock().main_layout.cursor_visibility(false),
                 }
             },
-            EditMode::Editing => {
-                self.state.edit_mode = EditMode::Editing;
+            EditMode::Insert => {
+                self.state.edit_mode = EditMode::Insert;
 
                 // send relevant input events to footer only in consumer mode
-                if self.state.app_mode == AppMode::Consumer {
-                    self.layout.lock().footer_layout.handle_input_event(InputEvent::Reset);
-                    self.layout.lock().footer_layout.input.highlight_border();
-                    self.layout.lock().footer_layout.handle_input_event(InputEvent::NewChar(':'));
+                match self.state.app_mode {
+                    AppMode::Consumer => {
+                        self.layout.lock().footer_layout.handle_input_event(InputEvent::Reset);
+                        self.layout.lock().footer_layout.input.highlight_border();
+                        self.layout.lock().footer_layout.input.cursor_visibility(true);
+                    },
+                    AppMode::Producer => self.layout().lock().main_layout.cursor_visibility(true),
                 }
             }
         }
@@ -637,9 +641,20 @@ where T: ClientContext + ConsumerContext {
         self.fetch_message(&selected_partition, offset);
     }
 
-    pub fn handle_help_command(&mut self) {
-        let current_state = self.layout.lock().show_help;
-        self.layout.lock().show_help = !current_state;
+    pub fn help_window(&mut self) {
+       self.layout.lock().toggle_help();
+    }
+
+    // Show/Hide file explorer
+    // The mode should be producer and app mode is normal
+    pub fn file_explorer(&mut self) {
+        if self.state.app_mode == AppMode::Producer {
+            if self.state.edit_mode == EditMode::Normal {
+                if self.layout.lock().main_layout.details_layout.toggle_file_explorer() {
+                    self.state.edit_mode = EditMode::Insert;
+                }
+            }
+        }
     }
 }
 

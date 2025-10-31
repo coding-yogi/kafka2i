@@ -1,6 +1,10 @@
+use std::{fmt::format, fs, io};
+
+use log::info;
 use ratatui::{layout::{Constraint, Layout, Rect}, style::Stylize, text::{Line, Span, Text}, widgets::Clear, Frame};
+use ratatui_explorer::File;
 use strum::Display;
-use crate::{kafka::metadata::Metadata, tui::widgets::UITextArea};
+use crate::{kafka::metadata::Metadata, tui::widgets::{UIFileExplorer, UITextArea}};
 
 use super::widgets::{AppWidget, Direction, InputEvent, UIList, UIParagraph, UITable};
 
@@ -29,7 +33,8 @@ pub struct AppLayout<'a> {
     pub main_layout: MainLayout<'a>,
     pub footer_layout: FooterLayout<'a>,
     pub help_layout: HelpLayout<'a>,
-    pub show_help: bool,
+
+    show_help: bool,
 }
 
 impl <'a> AppLayout<'a> {
@@ -99,6 +104,10 @@ impl <'a> AppLayout<'a> {
             .split(popup_layout[1]);
 
         vertical[1]
+    }
+
+    pub fn toggle_help(&mut self) {
+        self.show_help = !self.show_help
     }
 
 }
@@ -214,20 +223,14 @@ impl <'a> MainLayout<'a> {
         new_idx >= lists_cnt
     }
 
-    pub fn normalise_border(&mut self) {
-         // collect all list widgets
-        let mut selectable_widgets: Vec<&mut (dyn AppWidget + Send)> = self.lists_layout.lists.iter_mut()
-                    .map(|l| l as &mut (dyn AppWidget + Send)).collect();
-
-        // collect all input widgets
-        let mut input_widgets: Vec<&mut (dyn AppWidget + Send)> = vec![
-            &mut self.details_layout.key,
-            &mut self.details_layout.headers,
-            &mut self.details_layout.payload
-        ];
-
-        selectable_widgets.append(&mut input_widgets);
-        selectable_widgets[self.selected_widget].normalise_border();
+    pub fn cursor_visibility(&mut self, visible: bool) {
+        if self.details_layout.key.is_focused() {
+            self.details_layout.key.cursor_visibility(visible);
+        } else if self.details_layout.headers.is_focused() {
+            self.details_layout.headers.cursor_visibility(visible);
+        } else if self.details_layout.payload.is_focused() {
+            self.details_layout.payload.cursor_visibility(visible);
+        }
     }
 }
 
@@ -293,9 +296,12 @@ pub struct DetailsLayout<'a> {
     // consumer mode fields
     pub consumed_message: UITextArea<'a>,
 
+    // producer mode fields
     pub key: UITextArea<'a>,
     pub headers: UITextArea<'a>,
-    pub payload: UITextArea<'a>
+    pub payload: UITextArea<'a>,
+    pub file_explorer: UIFileExplorer,
+    show_file_explorer: bool,
 }
 
 impl <'a> DetailsLayout<'a> {
@@ -310,7 +316,9 @@ impl <'a> DetailsLayout<'a> {
             consumed_message: UITextArea::new("Message".to_string()),
             key: UITextArea::new("Key".to_string()),
             headers: UITextArea::new("Headers".to_string()),
-            payload: UITextArea::new("Payload".to_string())
+            payload: UITextArea::new("Payload".to_string()),
+            file_explorer: UIFileExplorer::new(),
+            show_file_explorer: false,
         }
     }
 
@@ -328,9 +336,23 @@ impl <'a> DetailsLayout<'a> {
                 self.metadata.render(frame, metadata);
                 self.key.render(frame, key);
                 self.headers.render(frame, headers);
-                self.payload.render(frame, payload);
+
+                if self.show_file_explorer {
+                    self.file_explorer.render(frame, payload);
+                } else {
+                    self.payload.render(frame, payload);
+                }
             }
         }
+    }
+
+    pub fn toggle_file_explorer(&mut self) -> bool {
+        // Toggle file explorer only if payload is focused
+        if self.payload.is_focused() {
+            self.show_file_explorer = !self.show_file_explorer
+        }
+
+        self.show_file_explorer
     }
 
     pub fn handle_input_event(&mut self, event: InputEvent) {
@@ -340,8 +362,47 @@ impl <'a> DetailsLayout<'a> {
         } else if self.headers.is_focused() {
             self.headers.handle_event(event);
         } else if self.payload.is_focused() {
-            self.payload.handle_event(event);
+            if self.show_file_explorer {
+               self.handle_file_explorer_events(event);
+            } else {
+                self.payload.handle_event(event);
+            }
         }
+    }
+
+    pub fn handle_file_explorer_events(&mut self, event: InputEvent) {
+        match event {
+            InputEvent::MoveCursor(direction) => self.file_explorer.handle_input(direction),
+            InputEvent::NewChar(c) => {
+                // If enter is hit
+                if c == '\n' {
+                    let file = self.file_explorer.get_selected_file();
+
+                    // check if selection returned in some
+                    if let Some(file) = file {
+                        match self.get_file_content(&file) {
+                            // Update payload with file contents
+                            Ok(contents) => {
+                                self.payload.update_text(contents);
+                                self.show_file_explorer = false;
+                            },
+                            Err(err) => self.file_explorer.show_error(format!("Error: {}", err)),
+                        }
+                    }
+                }
+            },
+            _ => ()
+        }
+    }
+
+    fn get_file_content(&self, file: &File) -> Result<String, io::Error> {
+        // Check if file is less than 1MB, else generate error message
+        let file_metadata = fs::metadata(file.path())?;
+        if file_metadata.len() > (1 * 1024 * 1024) {
+            return Err(io::Error::new(io::ErrorKind::FileTooLarge, "file exceeds 1MB limit"));
+        }
+
+        return fs::read_to_string(file.path());
     }
 }
 
@@ -400,20 +461,33 @@ impl <'a> HelpLayout<'a> {
         let help_text = Text::from(vec![
             Line::from(Span::from("Help Menu").bold().underlined().green().into_centered_line()),
             Span::from("").into(),
-            Line::from(Span::from(" Key Mappings:").green()),
+            Line::from(Span::from(" Common Key Mappings:").green()),
             Span::from("").into(),
-            help_option(" TAB      ", "Navigate between lists"),
+            help_option(" TAB      ", "Navigate between lists/producer fields"),
             help_option(" UP/DOWN  ", "Scroll thru the selected lists"),
-            help_option(" m        ", "Scroll down the message pane"),
-            help_option(" n        ", "Scroll up the message pane"),
-            help_option(" RIGHT    ", "Move to next offset"),
-            help_option(" Left     ", "Move to previous offset"),
-            help_option(" :        ", "Enter edit mode for consumer"),
-            help_option(" c        ", "Switch to consumer mode"),
-            help_option(" p        ", "Switch to producer mode"),
+            help_option(" i        ", "Enter insert/edit mode"),
             help_option(" h        ", "Show/Hide help menu"),
             help_option(" ESC      ", "Exit the edit mode for consumer & producer"),
-            help_option(" q        ", "Quit the application"),
+            help_option(" q        ", "Quit the application when in normal mode"),
+
+            Span::from("").into(),
+            Line::from(Span::from(" Consumer Key Mappings:").green()),
+            Span::from("").into(),
+            help_option(" m        ", "Scroll down the consumed message"),
+            help_option(" n        ", "Scroll up the consumed message"),
+            help_option(" RIGHT    ", "Move to next offset"),
+            help_option(" LEFT     ", "Move to previous offset"),
+            help_option(" p        ", "Switch to producer mode"),
+
+            Span::from("").into(),
+            Line::from(Span::from(" Producer Key Mappings:").green()),
+            Span::from("").into(),
+            help_option(" UP/DOWN  ", "Scroll thru the lists/headers/payloads"),
+            help_option(" RIGHT    ", "Move cursor to right in insert mode"),
+            help_option(" LEFT     ", "Move cursor to left in insert mode"),
+            help_option(" c        ", "Switch to consumer mode"),
+            help_option(" f        ", "Open file selection when payload field is selected"),
+
             Span::from("").into(),
             Line::from(Span::from(" Consumer Commands (edit mode):").green()),
             Span::from("").into(),

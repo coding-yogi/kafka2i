@@ -73,20 +73,20 @@ Consumer does not subscribe directly to any of the topics but assigns the requir
 | Key         | Mode     | Function |
 |-------------|----------|----------|
 |`TAB`        |both      | Navigate between the lists in `consumer` mode and the lists + inputs when in `producer` mode |
-|`UP`/`DOWN`  |both      | Scroll through the list entries |
+|`UP`/`DOWN`  |both      | Scroll through the list entries or scroll through text in `insert` mode |
 |`p`          |consumer  | Switch to `producer` mode |
 |`c`          |producer  | Switch to `consumer` mode |
-|`m`          |consumer  | Scroll down the message pane |
-|`n`          |consumer  | Scroll up the message pane |
-|`:` (colon)  |consumer  | Enter edit mode for `consumer` |
-|`LEFT`       |consumer  | Move to the previous offset of the selected parition |
-|`RIGHT`      |consumer  | Move to the next offset of the selected parition |
+|`m`          |consumer  | Scroll down the consumed message |
+|`n`          |consumer  | Scroll up the consumed message pane |
+|`i`          |both      | Enter edit (`insert`) mode |
+|`LEFT`       |both      | Move to the previous offset in `consumer` mode or move cursor in `insert` mode |
+|`RIGHT`      |both      | Move to the previous offset in `consumer` mode or move cursor in `insert` mode |
 |`h`          |both      | Open/Close help window |
 |`q`          |both      | Quit application (In `normal` mode) |
 
 
 ## Consumer Commands
-Commands can be entered when in edit mode. Press `:` to enter edit mode
+Commands can be entered when in edit mode. Press `i` to enter `insert` mode
 
 `offset!<number>`- Setting the offset for a selected parition to retrieve message at the set offset. E.g. `offset!7656`  
 `ts!<epoch_in_ms>` - Setting the epoch timestamp in millis to retrieve the first message at the set timestamp. E.g. `ts!1760597487571`

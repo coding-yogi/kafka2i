@@ -20,10 +20,13 @@ use ratatui::{
     Frame
 };
 use tui_textarea::{CursorMove, TextArea};
+use ratatui_explorer::{File, FileExplorer, Theme};
 
 pub const HIGHLIGHT_COLOR: Color = Color::Yellow;
 pub const NORMAL_COLOR: Color = Color::Green;
+pub const ERROR_COLOR: Color = Color::Red;
 
+#[derive(PartialEq)]
 pub enum Direction {
     UP,
     DOWN,
@@ -229,6 +232,7 @@ fn create_block<'a>(color: Color, name: String, with_border: bool) -> Block<'a> 
     block
 }
 
+#[derive(PartialEq)]
 pub enum InputEvent {
     NewChar(char),
     RemovePrevChar,
@@ -277,8 +281,7 @@ impl <'a> UITextArea<'a> {
     }
 
     fn reset(&mut self) {
-        log::info!("called reset");
-        self.update_title_and_text(self.name.clone(), "".to_string())
+        self.update_text("".to_string());
     }
 
     pub fn update_text(&mut self, text: String) {
@@ -287,9 +290,13 @@ impl <'a> UITextArea<'a> {
 
     pub fn update_title_and_text(&mut self, title: String, text: String) {
         self.text_area = TextArea::new(text.split('\n').map(|s| s.to_string()).collect());
-        self.text_area.set_block(create_block(NORMAL_COLOR, title, true));
-        self.text_area.set_cursor_line_style(Style::default());
-        self.text_area.set_cursor_style(Style::default());
+        if self.focused {
+            self.text_area.set_block(create_block(HIGHLIGHT_COLOR, title, true));
+            self.cursor_visibility(true);
+        } else {
+            self.text_area.set_block(create_block(NORMAL_COLOR, title, true));
+            self.cursor_visibility(false);
+        }
     }
 
     pub fn is_focused(&self) -> bool {
@@ -306,6 +313,16 @@ impl <'a> UITextArea<'a> {
 
     pub fn text(&self) -> String {
         self.text_area.lines().join("\n")
+    }
+
+    pub fn cursor_visibility(&mut self, visible: bool) {
+        if visible {
+            self.text_area.set_cursor_style(Style::default().bg(Color::Green));
+            self.text_area.set_cursor_line_style(Style::default());
+        } else {
+            self.text_area.set_cursor_style(Style::default());
+            self.text_area.set_cursor_line_style(Style::default());
+        }
     }
 }
 
@@ -324,7 +341,6 @@ impl <'a> AppWidget for UITextArea<'a> {
     fn highlight_border(&mut self) {
         self.focused = true;
         self.text_area.set_block(create_block(HIGHLIGHT_COLOR, self.name.clone(), true));
-        self.text_area.set_cursor_style(Style::default().bg(Color::Green));
     }
 }
 
@@ -396,8 +412,111 @@ impl <'a> AppWidget for UITable<'a> {
     }
 
     fn normalise_border(&mut self) {
+        // No implementation required
     }
 
     fn highlight_border(&mut self) {
+        // No implementation required
     }
+}
+
+#[derive(PartialEq)]
+pub struct UIFileExplorer {
+    area: Rect,
+    file_explorer: Option<FileExplorer>,
+}
+
+impl UIFileExplorer {
+    pub fn new() -> UIFileExplorer {
+        let file_explorer = match FileExplorer::with_theme(file_explorer_default_theme()) {
+            Ok(fe) => Some(fe),
+            Err(err) => {
+                log::error!("failed to open explorer: {}", err);
+                None
+            }
+        };
+
+        UIFileExplorer {
+            area: Rect::default(),
+            file_explorer: file_explorer
+        }
+    }
+
+    pub fn handle_input(&mut self, direction: Direction) {
+        if self.file_explorer == None {
+            return
+        }
+
+        let fe = self.file_explorer.as_mut().unwrap();
+
+        // reset theme if set to error
+        fe.set_theme(file_explorer_default_theme());
+
+        let result = match direction {
+            Direction::DOWN => fe.handle(ratatui_explorer::Input::Down),
+            Direction::UP => fe.handle(ratatui_explorer::Input::Up),
+            Direction::LEFT => fe.handle(ratatui_explorer::Input::Left),
+            Direction::RIGHT => fe.handle(ratatui_explorer::Input::Right),
+        };
+
+        if let Err(err) = result {
+            log::error!("file explorer failed to handle an input event {}", err);
+        } 
+    }
+
+    pub fn get_selected_file(&mut self) -> Option<File> {
+        if self.file_explorer == None {
+            return None
+        }
+
+        let fe = self.file_explorer.as_mut().unwrap();
+        if fe.current().is_file() {
+            return Some(fe.current().clone());
+        }
+            
+        self.show_error("Error: Select a file".to_string());
+        None
+    }
+
+    pub fn show_error(&mut self, error: String) {
+        self.file_explorer.as_mut().unwrap().set_theme(file_explorer_error_theme(error));
+    }
+}
+
+impl  AppWidget for UIFileExplorer {
+    fn render(&mut self, frame: &mut Frame, area: Rect) {
+        match &self.file_explorer {
+            Some(fe) => {
+                self.area = area;
+                frame.render_widget(&fe.widget(), area);
+            },
+            None => (),
+        }
+    }
+
+    fn normalise_border(&mut self) {
+        // No implementation required
+    }
+
+    fn highlight_border(&mut self) {
+        // No implementation required
+    }
+}
+
+fn file_explorer_base_theme() -> Theme {
+    Theme::default()
+        .with_highlight_item_style(Style::default().fg(HIGHLIGHT_COLOR))
+        .with_highlight_dir_style(Style::default().fg(HIGHLIGHT_COLOR).add_modifier(Modifier::BOLD))
+        .with_highlight_symbol("> ".into())
+        .with_title_bottom(|_| " ← Parent | → Child | ↑ Prev File | ↓ Next File".into())
+}
+
+fn file_explorer_default_theme() -> Theme {
+    file_explorer_base_theme()
+        .with_block(create_block(HIGHLIGHT_COLOR, "Select File".to_string(), true))
+}
+
+fn file_explorer_error_theme(text: String) -> Theme {
+    file_explorer_base_theme()
+        .with_block(create_block(ERROR_COLOR, text, true))
 }
