@@ -461,7 +461,7 @@ impl UIFileExplorer {
 
         if let Err(err) = result {
             log::error!("file explorer failed to handle an input event {}", err);
-        } 
+        }
     }
 
     pub fn get_selected_file(&mut self) -> Option<File> {
@@ -473,7 +473,7 @@ impl UIFileExplorer {
         if fe.current().is_file() {
             return Some(fe.current().clone());
         }
-            
+
         self.show_error("Error: Select a file".to_string());
         None
     }
