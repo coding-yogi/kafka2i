@@ -290,13 +290,15 @@ impl <'a> UITextArea<'a> {
 
     pub fn update_title_and_text(&mut self, title: String, text: String) {
         self.text_area = TextArea::new(text.split('\n').map(|s| s.to_string()).collect());
+
+        // If the text area was already focused, keep the border highlighting
         if self.focused {
             self.text_area.set_block(create_block(HIGHLIGHT_COLOR, title, true));
-            self.cursor_visibility(true);
         } else {
             self.text_area.set_block(create_block(NORMAL_COLOR, title, true));
-            self.cursor_visibility(false);
         }
+
+        self.cursor_visibility(false);
     }
 
     pub fn is_focused(&self) -> bool {

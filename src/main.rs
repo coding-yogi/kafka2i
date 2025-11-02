@@ -11,7 +11,7 @@ use ratatui::{prelude::CrosstermBackend, Terminal};
 use tokio::time;
 use tui::{app::App, app::AppEvent, events};
 
-use crate::{kafka::consumer::{Consumer, DefaultContext}};
+use crate::{kafka::consumer::{Consumer, DefaultContext}, tui::{app::EditMode, app::AppMode}};
 use crate::config::Config;
 use crate::tui::events::TuiEvent;
 
@@ -135,7 +135,12 @@ fn shutdown() -> Result<(), Box<dyn Error>> {
 async fn run<'a, T: ClientContext + ConsumerContext>(t: &'a mut Terminal<CrosstermBackend<Stderr>>, consumer: Arc<Mutex<Consumer<T>>>) -> Result<(), Box<dyn Error>> {
     // ratatui terminal
     let (sender, receiver) = unbounded::<AppEvent>();
-    let mut app = App::new(consumer, receiver).await;
+
+    // Define app mode & insert mode. These references will be used by app as well as the layout
+    let app_mode = Arc::new(Mutex::new(AppMode::default()));
+    let edit_mode =  Arc::new(Mutex::new(EditMode::default()));
+
+    let mut app = App::new(consumer, app_mode, edit_mode, receiver).await;
     let app_layout = app.layout();
 
     let mut events = events::EventHandler::new(1.0, 30.0);

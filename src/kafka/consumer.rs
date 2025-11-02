@@ -373,18 +373,18 @@ fn retrieve_key<M: Message>(msg: &M) -> Option<String> {
 
 // retrieve headers from original kafka message
 fn retrieve_headers<M: Message>(msg: &M) -> HashMap<String, String> {
-    let mut headersMap = HashMap::new();
+    let mut headers_map = HashMap::new();
     if let Some(headers) = msg.headers() {
         headers.iter().for_each(|header| {
             if let Some(value) = header.value {
-                headersMap.insert(header.key.to_string(), String::from_utf8_lossy(value).to_string());
+                headers_map.insert(header.key.to_string(), String::from_utf8_lossy(value).to_string());
             } else {
-                headersMap.insert(header.key.to_string(), "".to_string());
+                headers_map.insert(header.key.to_string(), "".to_string());
             }
         });
     }
 
-    headersMap
+    headers_map
 }
 
 // retrieve payload from original kafka message

@@ -8,15 +8,25 @@ use parking_lot::Mutex;
 use rdkafka::{consumer::ConsumerContext, ClientContext};
 use strum::{self, Display, EnumString};
 use crate::kafka::consumer::{Consumer, ConsumerError, KafkaMessage};
-use crate::tui::single_layout::AppMode;
 use crate::tui::widgets::{AppWidget, Direction};
 
-use super::{single_layout::{self, AppLayout, BROKERS_LIST, CONSUMER_GROUPS_LIST, PARTITIONS_LIST, TOPICS_LIST}, widgets::InputEvent};
+use super::{single_layout::{AppLayout, BROKERS_LIST, CONSUMER_GROUPS_LIST, PARTITIONS_LIST, TOPICS_LIST}, widgets::InputEvent};
 
-#[derive(PartialEq)]
-enum EditMode {
+#[derive(Clone, Debug, Display, Default, PartialEq)]
+pub enum EditMode {
+     #[default]
     Normal,
     Insert
+}
+
+// Mode of App
+#[derive(Clone, Debug, Display, Default, PartialEq)]
+pub enum AppMode {
+    #[default]
+    #[strum(to_string="Consumer")]
+    Consumer,
+    #[strum(to_string="Producer")]
+    Producer
 }
 
 pub enum AppEvent {
@@ -56,9 +66,9 @@ const UNINITIALISED_OFFSET: i64 = -999;
 // App state maintains the state at app level
 struct AppState {
     // app mode
-    app_mode: AppMode,
+    app_mode: Arc<Mutex<AppMode>>,
     //edit mode
-    edit_mode: EditMode,
+    edit_mode: Arc<Mutex<EditMode>>,
     //offset for selected partition
     offset: i64,
     // should_quit tells the main loop to terminate the app
@@ -83,15 +93,20 @@ where T: ClientContext + ConsumerContext
 impl <'a, T> App<'a, T> 
 where T: ClientContext + ConsumerContext
 {
-    pub async fn new(kafka_consumer: Arc<Mutex<Consumer<T>>>, app_event_recv: Receiver<AppEvent>) -> App<'a, T> {
+    pub async fn new(
+        kafka_consumer: Arc<Mutex<Consumer<T>>>, 
+        app_mode: Arc<Mutex<AppMode>>,
+        edit_mode: Arc<Mutex<EditMode>>,
+        app_event_recv: Receiver<AppEvent>
+    ) -> App<'a, T> {
         let metadata = kafka_consumer.lock().metadata().clone();
 
         let app = App {
-            layout: Arc::new(Mutex::new(AppLayout::new(&metadata))),
+            layout: Arc::new(Mutex::new(AppLayout::new(&metadata, app_mode.clone(), edit_mode.clone()))),
             state: AppState {
                 should_quit: false,
-                app_mode: AppMode::default(),
-                edit_mode: EditMode::Normal,
+                app_mode: app_mode,
+                edit_mode: edit_mode,
                 offset: UNINITIALISED_OFFSET,
             },
             //terminal: t,
@@ -122,7 +137,9 @@ where T: ClientContext + ConsumerContext {
         loop {
             match self.app_event_recv.recv() {
                 Ok(event) => {
-                    match self.state.edit_mode {
+                    // We need to clone the state else it will create a dead lock
+                    let state = self.state.edit_mode.lock().clone();
+                    match state {
                         EditMode::Normal => {
                             match event {
                                 AppEvent::Tab => self.handle_tab(false),
@@ -136,8 +153,8 @@ where T: ClientContext + ConsumerContext {
                                     'm' => self.handle_message_scroll(Direction::DOWN),
                                     'n' => self.handle_message_scroll(Direction::UP),
                                     'h' => self.help_window(),
-                                    'c' => self.set_app_mode(single_layout::AppMode::Consumer),
-                                    'p' => self.set_app_mode(single_layout::AppMode::Producer),
+                                    'c' => self.set_app_mode(AppMode::Consumer),
+                                    'p' => self.set_app_mode(AppMode::Producer),
                                     'f' => self.file_explorer(),
                                     'q' | 'Q' => {
                                         self.state.should_quit = true;
@@ -159,7 +176,9 @@ where T: ClientContext + ConsumerContext {
                                 AppEvent::Up => self.handle_input_event(InputEvent::MoveCursor(Direction::UP)),
                                 AppEvent::Down => self.handle_input_event(InputEvent::MoveCursor(Direction::DOWN)),
                                 AppEvent::Enter => {
-                                    match self.state.app_mode {
+                                    // We need to clone the app mode else it can create a deadlock
+                                    let app_mode = self.state.app_mode.lock().clone();
+                                    match app_mode {
                                         AppMode::Consumer => {
                                             // For consumer, we handle the command entered post hitting enter
                                             self.handle_input_submission();
@@ -183,8 +202,8 @@ where T: ClientContext + ConsumerContext {
     }
 
     // set mode of the app
-    fn set_app_mode(&mut self, mode: single_layout::AppMode) {
-        self.state.app_mode = mode.clone();
+    fn set_app_mode(&mut self, mode: AppMode) {
+        *self.state.app_mode.lock() = mode.clone();
         self.layout.lock().set_app_mode(mode);
     }
 }
@@ -195,10 +214,7 @@ where T: ClientContext + ConsumerContext {
 
     // Handles tab event which switches between the available tabs
     fn handle_tab(&mut self, back_tab: bool) {
-        // enable edit mode if any of the input blocks is selected
-        if self.layout.lock().main_layout.handle_tab(back_tab) && self.state.app_mode == AppMode::Producer {
-            //self.toggle_edit_mode(EditMode::Editing);
-        }
+        self.layout.lock().main_layout.handle_tab(back_tab);
     }
 
     // Handles the list navigation for the list in focus 
@@ -264,7 +280,7 @@ where T: ClientContext + ConsumerContext {
             self.state.offset = UNINITIALISED_OFFSET;
 
             // fetch message only in consumer mode
-            if self.state.app_mode == AppMode::Consumer {
+            if *self.state.app_mode.lock() == AppMode::Consumer {
                 self.fetch_message(&selected_partition, -1)
             }
         }
@@ -465,20 +481,20 @@ impl <T> App<'_, T>
 where T: ClientContext + ConsumerContext {
     // Toggle the edit mode to accept input
     fn toggle_edit_mode(&mut self, mode: EditMode) {
+        let app_mode = self.state.app_mode.lock().clone();
+
         match mode {
             EditMode::Normal => {
-                self.state.edit_mode = EditMode::Normal;
-
-                match self.state.app_mode {
+                *self.state.edit_mode.lock() = EditMode::Normal;
+                match app_mode {
                     AppMode::Consumer => self.layout.lock().footer_layout.input.normalise_border(),
                     AppMode::Producer => self.layout().lock().main_layout.cursor_visibility(false),
                 }
             },
             EditMode::Insert => {
-                self.state.edit_mode = EditMode::Insert;
-
-                // send relevant input events to footer only in consumer mode
-                match self.state.app_mode {
+                *self.state.edit_mode.lock() = EditMode::Insert;
+                // send relevant input events based on app mode
+                match app_mode {
                     AppMode::Consumer => {
                         self.layout.lock().footer_layout.handle_input_event(InputEvent::Reset);
                         self.layout.lock().footer_layout.input.highlight_border();
@@ -492,7 +508,8 @@ where T: ClientContext + ConsumerContext {
 
     // Handle input event
     fn handle_input_event(&mut self, input_event: InputEvent) {
-        match self.state.app_mode {
+        let app_mode = self.state.app_mode.lock().clone();
+        match app_mode {
             AppMode::Consumer => self.layout.lock().footer_layout.handle_input_event(input_event),
             AppMode::Producer => self.layout.lock().main_layout.details_layout.handle_input_event(input_event),
         }
@@ -510,7 +527,7 @@ where T: ClientContext + ConsumerContext {
     // validate cmd
     fn handle_command(&mut self, input: &str)  {
         // For now handle commands only for consumer mode
-        if self.state.app_mode == AppMode::Producer {
+        if *self.state.app_mode.lock() == AppMode::Producer {
             return;
         }
 
@@ -648,10 +665,10 @@ where T: ClientContext + ConsumerContext {
     // Show/Hide file explorer
     // The mode should be producer and app mode is normal
     pub fn file_explorer(&mut self) {
-        if self.state.app_mode == AppMode::Producer {
-            if self.state.edit_mode == EditMode::Normal {
+        if *self.state.app_mode.lock() == AppMode::Producer {
+            if *self.state.edit_mode.lock() == EditMode::Normal {
                 if self.layout.lock().main_layout.details_layout.toggle_file_explorer() {
-                    self.state.edit_mode = EditMode::Insert;
+                    *self.state.edit_mode.lock() = EditMode::Insert;
                 }
             }
         }

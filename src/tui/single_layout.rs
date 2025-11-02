@@ -1,10 +1,9 @@
-use std::{fmt::format, fs, io};
+use std::{fs, io, sync::Arc};
 
-use log::info;
+use parking_lot::Mutex;
 use ratatui::{layout::{Constraint, Layout, Rect}, style::Stylize, text::{Line, Span, Text}, widgets::Clear, Frame};
 use ratatui_explorer::File;
-use strum::Display;
-use crate::{kafka::metadata::Metadata, tui::widgets::{UIFileExplorer, UITextArea}};
+use crate::{kafka::metadata::Metadata, tui::{app::{AppMode, EditMode}, widgets::{UIFileExplorer, UITextArea}}};
 
 use super::widgets::{AppWidget, Direction, InputEvent, UIList, UIParagraph, UITable};
 
@@ -17,16 +16,6 @@ pub const CONSUMER_GROUPS_LIST: &str = "Consumer Groups";
 pub const TOPICS_LIST: &str = "Topics";
 pub const PARTITIONS_LIST: &str = "Partitions";
 
-// Mode of App
-#[derive(Clone, Debug, Display, Default, PartialEq)]
-pub enum AppMode {
-    #[default]
-    #[strum(to_string="Consumer")]
-    Consumer,
-    #[strum(to_string="Producer")]
-    Producer
-}
-
 // Top level application layout
 pub struct AppLayout<'a> {
     pub header_layout: HeaderLayout<'a>,
@@ -38,16 +27,16 @@ pub struct AppLayout<'a> {
 }
 
 impl <'a> AppLayout<'a> {
-    pub fn new(metadata: &Metadata) -> AppLayout<'a> {
+    pub fn new(metadata: &Metadata, app_mode: Arc<Mutex<AppMode>>,  edit_mode: Arc<Mutex<EditMode>>) -> AppLayout<'a> {
         let mut app_layout = AppLayout{
             header_layout: HeaderLayout::new(),
-            main_layout: MainLayout::new(metadata),
+            main_layout: MainLayout::new(metadata, app_mode.clone(), edit_mode),
             footer_layout: FooterLayout::new(),
             help_layout: HelpLayout::new(),
             show_help: false,
         };
 
-        app_layout.footer_layout.set_mode(AppMode::Consumer.to_string());
+        app_layout.footer_layout.set_mode(app_mode.lock().to_string());
         app_layout
     }
 
@@ -69,7 +58,6 @@ impl <'a> AppLayout<'a> {
     }
 
     pub fn set_app_mode(&mut self, mode: AppMode) {
-        self.main_layout.details_layout.mode = mode.clone();
         self.footer_layout.set_mode(mode.to_string());
     }
 
@@ -144,10 +132,10 @@ pub struct MainLayout<'a> {
 }
 
 impl <'a> MainLayout<'a> {
-    pub fn new(metadata: &Metadata) -> MainLayout<'a> {
+    pub fn new(metadata: &Metadata, app_mode: Arc<Mutex<AppMode>>,  edit_mode: Arc<Mutex<EditMode>>) -> MainLayout<'a> {
         MainLayout {
             lists_layout: ListsLayout::new(metadata),
-            details_layout: DetailsLayout::new(),
+            details_layout: DetailsLayout::new(app_mode, edit_mode),
             selected_widget: 0,
         }
     }
@@ -162,13 +150,10 @@ impl <'a> MainLayout<'a> {
     }
 
     // handle_tab will highlight the required widget and also return a boolean stating if edit mode should be enabled
-    pub fn handle_tab(&mut self, back_tab: bool) -> bool {
+    pub fn handle_tab(&mut self, back_tab: bool) {
         // collect all list widgets
         let mut selectable_widgets: Vec<&mut (dyn AppWidget + Send)> = self.lists_layout.lists.iter_mut()
                     .map(|l| l as &mut (dyn AppWidget + Send)).collect();
-
-        // length of lists
-        let lists_cnt = selectable_widgets.len();
 
         // collect all input widgets
         let mut input_widgets: Vec<&mut (dyn AppWidget + Send)> = vec![
@@ -189,7 +174,7 @@ impl <'a> MainLayout<'a> {
         let mut len = selectable_widgets.len();
 
         // If in consumer mode, reduce the length by length of input widgets
-        if self.details_layout.mode == AppMode::Consumer {
+        if *self.details_layout.app_mode.lock() == AppMode::Consumer {
             len = len - inputs_cnt;
         }
 
@@ -218,17 +203,18 @@ impl <'a> MainLayout<'a> {
         // higlight selected list border
         self.selected_widget = new_idx;
         selectable_widgets[self.selected_widget].highlight_border();
-
-        // if any of the input widget is selected we need to enable edit mode
-        new_idx >= lists_cnt
     }
 
+    // Makes the cursor visible for the selected field
     pub fn cursor_visibility(&mut self, visible: bool) {
         if self.details_layout.key.is_focused() {
             self.details_layout.key.cursor_visibility(visible);
         } else if self.details_layout.headers.is_focused() {
             self.details_layout.headers.cursor_visibility(visible);
         } else if self.details_layout.payload.is_focused() {
+            // This is a special case where we might require to reset
+            // the text in the payload if already set
+            self.details_layout.reset_payload();
             self.details_layout.payload.cursor_visibility(visible);
         }
     }
@@ -290,7 +276,9 @@ impl <'a> ListsLayout<'a> {
 
 // Details Layout
 pub struct DetailsLayout<'a> {
-    mode: AppMode,
+    app_mode: Arc<Mutex<AppMode>>,
+    edit_mode: Arc<Mutex<EditMode>>,
+
     pub metadata: UITable<'a>,
 
     // consumer mode fields
@@ -302,16 +290,20 @@ pub struct DetailsLayout<'a> {
     pub payload: UITextArea<'a>,
     pub file_explorer: UIFileExplorer,
     show_file_explorer: bool,
+
+    // file content if read from file
+    file_contents: Vec<u8>
 }
 
 impl <'a> DetailsLayout<'a> {
-    pub fn new() -> DetailsLayout<'a> {
+    pub fn new(app_mode: Arc<Mutex<AppMode>>,  edit_mode: Arc<Mutex<EditMode>>) -> DetailsLayout<'a> {
         let column_headers = vec!["Broker", "Consumer Group", "Topic", "Partition"];
         let column_constraints: Vec<u16> = vec![25, 25, 25, 25];
         let data = vec![vec!["".to_string(); column_constraints.len()]];
 
         DetailsLayout {
-            mode: AppMode::default(),
+            app_mode: app_mode,
+            edit_mode: edit_mode,
             metadata: UITable::new(column_headers, column_constraints, data),
             consumed_message: UITextArea::new("Message".to_string()),
             key: UITextArea::new("Key".to_string()),
@@ -319,11 +311,13 @@ impl <'a> DetailsLayout<'a> {
             payload: UITextArea::new("Payload".to_string()),
             file_explorer: UIFileExplorer::new(),
             show_file_explorer: false,
+            file_contents: vec![],
         }
     }
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect) {
-        match self.mode {
+        let app_mode = self.app_mode.lock().clone();
+        match app_mode {
             AppMode::Consumer => {
                 let layout = Layout::vertical([Constraint::Length(9), Constraint::Fill(1)]);
                 let [metadata, message] = layout.areas(area);
@@ -346,6 +340,7 @@ impl <'a> DetailsLayout<'a> {
         }
     }
 
+    // Open/Close file explorer dialog. Returns true is opened
     pub fn toggle_file_explorer(&mut self) -> bool {
         // Toggle file explorer only if payload is focused
         if self.payload.is_focused() {
@@ -355,6 +350,7 @@ impl <'a> DetailsLayout<'a> {
         self.show_file_explorer
     }
 
+    // Handles all the input events for details layout
     pub fn handle_input_event(&mut self, event: InputEvent) {
         //check which input is focused and delegate call to its input handler
         if self.key.is_focused() {
@@ -370,21 +366,35 @@ impl <'a> DetailsLayout<'a> {
         }
     }
 
+    // Reset payload field
+    pub fn reset_payload(&mut self) {
+        // We will check if file_contents are populated, if yes, we will clear the contents of payload and the file
+        // Reason being we do not wish to allow user to update the contents populated from the file
+        // If user selects a binary file and updates its contents, it is impossible to send the correct message
+        if !self.file_contents.is_empty() && *self.edit_mode.lock() == EditMode::Insert {
+            self.payload.handle_event(InputEvent::Reset);
+            self.file_contents = vec![];
+        }
+    }
+
+    // Handles the input events for file explorer
     pub fn handle_file_explorer_events(&mut self, event: InputEvent) {
         match event {
             InputEvent::MoveCursor(direction) => self.file_explorer.handle_input(direction),
             InputEvent::NewChar(c) => {
-                // If enter is hit
+                // If enter key event is received, read the file
                 if c == '\n' {
                     let file = self.file_explorer.get_selected_file();
 
                     // check if selection returned in some
                     if let Some(file) = file {
                         match self.get_file_content(&file) {
-                            // Update payload with file contents
+                            // Update payload with file contents, close the file explorer & set to normal mode
                             Ok(contents) => {
-                                self.payload.update_text(contents);
+                                self.file_contents = contents;
+                                self.payload.update_text(String::from_utf8_lossy(&self.file_contents).to_string());
                                 self.show_file_explorer = false;
+                                *self.edit_mode.lock() = EditMode::Normal;
                             },
                             Err(err) => self.file_explorer.show_error(format!("Error: {}", err)),
                         }
@@ -395,14 +405,14 @@ impl <'a> DetailsLayout<'a> {
         }
     }
 
-    fn get_file_content(&self, file: &File) -> Result<String, io::Error> {
+    fn get_file_content(&self, file: &File) -> Result<Vec<u8>, io::Error> {
         // Check if file is less than 1MB, else generate error message
         let file_metadata = fs::metadata(file.path())?;
         if file_metadata.len() > (1 * 1024 * 1024) {
             return Err(io::Error::new(io::ErrorKind::FileTooLarge, "file exceeds 1MB limit"));
         }
 
-        return fs::read_to_string(file.path());
+        return fs::read(file.path());
     }
 }
 
