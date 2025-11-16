@@ -97,7 +97,6 @@ impl <'a> AppLayout<'a> {
     pub fn toggle_help(&mut self) {
         self.show_help = !self.show_help
     }
-
 }
 
 // Header Layout
@@ -205,6 +204,19 @@ impl <'a> MainLayout<'a> {
         selectable_widgets[self.selected_widget].highlight_border();
     }
 
+    // Handle navigration
+    pub fn handle_navigation(&mut self, direction: &Direction) {
+        self.lists_layout.handle_navigation(direction);
+
+        if self.details_layout.key.is_focused() {
+            self.details_layout.key.scroll(direction);
+        } else if self.details_layout.headers.is_focused() {
+            self.details_layout.headers.scroll(direction);
+        } else if self.details_layout.payload.is_focused() {
+            self.details_layout.payload.scroll(direction);
+        }
+    }
+
     // Makes the cursor visible for the selected field
     pub fn cursor_visibility(&mut self, visible: bool) {
         if self.details_layout.key.is_focused() {
@@ -259,14 +271,18 @@ impl <'a> ListsLayout<'a> {
             .next()
     }
 
-    pub fn handle_navigation(&mut self, direction: Direction) {
+    pub fn handle_navigation(&mut self, direction: &Direction) {
         if let Some(selected_list) = self.selected_list_index() {
             self.lists[selected_list].handle_navigation(direction);
         }
     }
 
-    pub fn selected_list(&self) -> &UIList<'a> {
-        &self.lists[self.selected_list_index().unwrap_or(0)]
+    pub fn selected_list(&self) -> Option<&UIList<'a>> {
+        if let Some(idx) = self.selected_list_index() {
+            return Some(&self.lists[idx])
+        }
+
+        None
     }
 
     pub fn selected_list_index(&self) -> Option<usize> {
@@ -368,10 +384,11 @@ impl <'a> DetailsLayout<'a> {
 
     // Reset payload field
     pub fn reset_payload(&mut self) {
-        // We will check if file_contents are populated, if yes, we will clear the contents of payload and the file
-        // Reason being we do not wish to allow user to update the contents populated from the file
+        // We will check if file_contents are populated, if yes, we will clear the contents of payload and the file,
+        // reason being we do not wish to allow user to update the contents populated from the file
         // If user selects a binary file and updates its contents, it is impossible to send the correct message
         if !self.file_contents.is_empty() && *self.edit_mode.lock() == EditMode::Insert {
+            self.payload.set_title("Payload".to_string());
             self.payload.handle_event(InputEvent::Reset);
             self.file_contents = vec![];
         }
@@ -392,6 +409,7 @@ impl <'a> DetailsLayout<'a> {
                             // Update payload with file contents, close the file explorer & set to normal mode
                             Ok(contents) => {
                                 self.file_contents = contents;
+                                self.payload.set_title("Payload (immutable)".to_string());
                                 self.payload.update_text(String::from_utf8_lossy(&self.file_contents).to_string());
                                 self.show_file_explorer = false;
                                 *self.edit_mode.lock() = EditMode::Normal;

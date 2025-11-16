@@ -144,14 +144,14 @@ where T: ClientContext + ConsumerContext {
                             match event {
                                 AppEvent::Tab => self.handle_tab(false),
                                 AppEvent::BackTab => self.handle_tab(true),
-                                AppEvent::Up => self.handle_list_navigation(Direction::UP),
-                                AppEvent::Down => self.handle_list_navigation(Direction::DOWN),
+                                AppEvent::Up => self.handle_navigation(&Direction::UP),
+                                AppEvent::Down => self.handle_navigation(&Direction::DOWN),
                                 AppEvent::Left => self.handle_offset_navigation(Direction::LEFT),
                                 AppEvent::Right => self.handle_offset_navigation(Direction::RIGHT),
                                 AppEvent::Input(char) => match char {
                                     'i' => self.toggle_edit_mode(EditMode::Insert),
-                                    'm' => self.handle_message_scroll(Direction::DOWN),
-                                    'n' => self.handle_message_scroll(Direction::UP),
+                                    'm' => self.handle_message_scroll(&Direction::DOWN),
+                                    'n' => self.handle_message_scroll(&Direction::UP),
                                     'h' => self.help_window(),
                                     'c' => self.set_app_mode(AppMode::Consumer),
                                     'p' => self.set_app_mode(AppMode::Producer),
@@ -217,19 +217,23 @@ where T: ClientContext + ConsumerContext {
         self.layout.lock().main_layout.handle_tab(back_tab);
     }
 
-    // Handles the list navigation for the list in focus 
-    fn handle_list_navigation(&mut self, direction: Direction){
-        // selected list
-        self.layout.lock().main_layout.lists_layout.handle_navigation(direction);
-        let selected_list_name = self.layout.lock().main_layout.lists_layout.selected_list().name().to_string().clone();
+    // Handles the navigation for the widget in focus
+    fn handle_navigation(&mut self, direction: &Direction) {
+        // handle navigation for the selected widget
+        self.layout.lock().main_layout.handle_navigation(direction);
 
-        // handle navigation events
+        let mut selected_list_name= String::from("");
+        if let Some(selected_list) = self.layout.lock().main_layout.lists_layout.selected_list() {
+            selected_list_name = selected_list.name().to_string();
+        }
+
+        // handle navigation event if a list item is navigated
         match selected_list_name.as_str() {
             BROKERS_LIST => self.handle_broker_list_navigation(),
             TOPICS_LIST => self.handle_topic_list_navigation(),
             CONSUMER_GROUPS_LIST => self.handle_cg_list_navigation(),
             PARTITIONS_LIST => self.handle_partition_list_navigation(),
-            _ => log::error!("Selected list has an invalid name")
+            _ => ()
         }
     }
 
@@ -310,12 +314,8 @@ where T: ClientContext + ConsumerContext {
 // Implementation block for all message block related events
 impl <T> App<'_, T>
 where T: ClientContext + ConsumerContext {
-    fn handle_message_scroll(&mut self, direction: Direction) {
-        match direction {
-            Direction::DOWN => self.layout.lock().main_layout.details_layout.consumed_message.scroll_down(),
-            Direction::UP => self.layout.lock().main_layout.details_layout.consumed_message.scroll_up(),
-            _ => ()
-        }
+    fn handle_message_scroll(&mut self, direction: &Direction) {
+        self.layout.lock().main_layout.details_layout.consumed_message.scroll(direction);
     }
 }
 
@@ -665,11 +665,11 @@ where T: ClientContext + ConsumerContext {
     // Show/Hide file explorer
     // The mode should be producer and app mode is normal
     pub fn file_explorer(&mut self) {
-        if *self.state.app_mode.lock() == AppMode::Producer {
-            if *self.state.edit_mode.lock() == EditMode::Normal {
-                if self.layout.lock().main_layout.details_layout.toggle_file_explorer() {
-                    *self.state.edit_mode.lock() = EditMode::Insert;
-                }
+        // Toggle file explorer only in producer + normal mode
+        if *self.state.app_mode.lock() == AppMode::Producer && *self.state.edit_mode.lock() == EditMode::Normal {
+            // If toggle displays the file explorer, then set edit mode to insert
+            if self.layout.lock().main_layout.details_layout.toggle_file_explorer() {
+                *self.state.edit_mode.lock() = EditMode::Insert;
             }
         }
     }

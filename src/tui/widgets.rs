@@ -103,7 +103,7 @@ impl <'a> UIList <'a> {
         self.state.selected()
     }
 
-    pub fn handle_navigation(&mut self, direction: Direction) {
+    pub fn handle_navigation(&mut self, direction: &Direction) {
         match direction {
             Direction::UP => self.handle_up(),
             Direction::DOWN => self.handle_down(), 
@@ -263,6 +263,14 @@ impl <'a> UITextArea<'a> {
         }
     }
 
+    pub fn title(&self) -> &str {
+        &self.name
+    }
+
+    pub fn set_title(&mut self, title: String) {
+        self.name = title
+    }
+
     pub fn handle_event(&mut self, event: InputEvent) {
         match event {
             InputEvent::NewChar(c) => self.text_area.insert_char(c),
@@ -305,12 +313,12 @@ impl <'a> UITextArea<'a> {
         self.focused
     }
 
-    pub fn scroll_up(&mut self) {
-        self.text_area.scroll((-1, 0));
-    }
-
-    pub fn scroll_down(&mut self) {
-        self.text_area.scroll((1, 0));
+    pub fn scroll(&mut self, direction: &Direction) {
+        match direction {
+            Direction::UP => self.text_area.scroll((-1, 0)),
+            Direction::DOWN => self.text_area.scroll((1, 0)),
+            _ => ()
+        }
     }
 
     pub fn text(&self) -> String {
