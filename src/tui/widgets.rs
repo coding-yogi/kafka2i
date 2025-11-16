@@ -246,6 +246,7 @@ pub struct UITextArea<'a> {
     text_area: TextArea<'a>,
     area: Rect,
     focused: bool,
+    errored: bool,
 }
 
 impl <'a> UITextArea<'a> {
@@ -260,15 +261,16 @@ impl <'a> UITextArea<'a> {
             text_area: text_area,
             area: Rect::default(),
             focused: false,
+            errored: false,
         }
-    }
-
-    pub fn title(&self) -> &str {
-        &self.name
     }
 
     pub fn set_title(&mut self, title: String) {
         self.name = title
+    }
+
+    pub fn set_errored(&mut self, errored: bool) {
+        self.errored = errored
     }
 
     pub fn handle_event(&mut self, event: InputEvent) {
@@ -344,12 +346,19 @@ impl <'a> AppWidget for UITextArea<'a> {
 
     fn normalise_border(&mut self) {
         self.focused = false;
-        self.text_area.set_block(create_block(NORMAL_COLOR, self.name.clone(), true));
+        let mut color = NORMAL_COLOR;
+
+        if self.errored {
+            color = ERROR_COLOR
+        }
+
+        self.text_area.set_block(create_block(color, self.name.clone(), true));
         self.text_area.set_cursor_style(Style::default());
     }
 
     fn highlight_border(&mut self) {
         self.focused = true;
+        self.errored = false;
         self.text_area.set_block(create_block(HIGHLIGHT_COLOR, self.name.clone(), true));
     }
 }

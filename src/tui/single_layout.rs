@@ -466,7 +466,8 @@ impl <'a> FooterLayout<'a> {
         self.input.text()
     }
 
-    pub fn set_value(&mut self, value: &'a str) {
+    pub fn show_error(&mut self, value: &'a str) {
+        self.input.set_errored(true);
         self.input.update_text(value.to_string());
     }
 

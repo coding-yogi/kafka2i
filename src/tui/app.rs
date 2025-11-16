@@ -433,7 +433,7 @@ where T: ClientContext + ConsumerContext {
                 // set offset to the end based on HWM
                 offset = high_watermark - 1;
             } else if  offset < low_watermark || offset >= high_watermark {
-                self.layout.lock().footer_layout.set_value(ERR_INVALID_OFFSET);
+                self.layout.lock().footer_layout.show_error(ERR_INVALID_OFFSET);
                 self.log_error_and_update(format!("invalid offset {}, should be between {} and {}", offset, low_watermark, high_watermark));
                 return;
             }
@@ -533,7 +533,7 @@ where T: ClientContext + ConsumerContext {
 
         let inputs = input.split("!").collect::<Vec<&str>>();
         if inputs.len() < 2 {
-            self.layout.lock().footer_layout.set_value(ERR_INVALID_CMD);
+            self.layout.lock().footer_layout.show_error(ERR_INVALID_CMD);
             error!("invalid command {}: command should be of format :<command>!<arg>", input);
             return;
         }
@@ -541,7 +541,7 @@ where T: ClientContext + ConsumerContext {
         let (command, arg) = match Command::from_str(inputs[0]) {
            Ok(cmd) => (cmd, inputs[1]),
            Err(err) => {
-               self.layout.lock().footer_layout.set_value(ERR_INVALID_CMD);
+               self.layout.lock().footer_layout.show_error(ERR_INVALID_CMD);
                error!("error parsing command {}: {}", input, err);
                return;
            }
@@ -564,7 +564,7 @@ where T: ClientContext + ConsumerContext {
         let offset = match offset_str.parse::<i64>() {
             Ok(o) => o,
             Err(_) => {
-                self.layout.lock().footer_layout.set_value(ERR_INVALID_OFFSET);
+                self.layout.lock().footer_layout.show_error(ERR_INVALID_OFFSET);
                 error!("invalid offset {}", offset_str);
                 return;
             }
@@ -573,7 +573,7 @@ where T: ClientContext + ConsumerContext {
         let selected_partition = match self.get_selected_item_for_list(PARTITIONS_LIST) {
             Some(p) => p,
             None => {
-                self.layout.lock().footer_layout.set_value(ERR_NO_SELECTED_PARTITION);
+                self.layout.lock().footer_layout.show_error(ERR_NO_SELECTED_PARTITION);
                 error!("no partition selected to seek");
                 return;
             }
@@ -588,7 +588,7 @@ where T: ClientContext + ConsumerContext {
         let _timestamp = match timestamp_str.parse::<i64>() {
             Ok(t) => t,
             Err(_) => {
-                self.layout.lock().footer_layout.set_value(ERR_INVALID_TIMESTAMP);
+                self.layout.lock().footer_layout.show_error(ERR_INVALID_TIMESTAMP);
                 error!("invalid timestamp {}. timestamp should be a number representing an epoch in milliseconds", timestamp_str);
                 return;
             }
@@ -596,7 +596,7 @@ where T: ClientContext + ConsumerContext {
 
         // check if it is a valid epoch timestamp
         if DateTime::from_timestamp_millis(_timestamp) == None {
-            self.layout.lock().footer_layout.set_value(ERR_INVALID_TIMESTAMP);
+            self.layout.lock().footer_layout.show_error(ERR_INVALID_TIMESTAMP);
             error!("invalid timestamp {}. timestamp should be an epoch in milliseconds", timestamp_str);
             return;
         }
@@ -605,7 +605,7 @@ where T: ClientContext + ConsumerContext {
         let selected_partition = match self.get_selected_item_for_list(PARTITIONS_LIST) {
             Some(p) => p,
             None => {
-            self.layout.lock().footer_layout.set_value(ERR_NO_SELECTED_PARTITION);
+            self.layout.lock().footer_layout.show_error(ERR_NO_SELECTED_PARTITION);
             error!("no partition selected to seek");
             return;
             }
@@ -617,13 +617,13 @@ where T: ClientContext + ConsumerContext {
                 Ok(offset) => match offset {
                     Some(o) => o,
                     None => {
-                        self.layout.lock().footer_layout.set_value(ERR_OFFSET_NOT_FOUND);
+                        self.layout.lock().footer_layout.show_error(ERR_OFFSET_NOT_FOUND);
                         error!("no offset found for topic {} & partition {} for timestamp {}", topic_name, partition_id, _timestamp);
                         return;
                     }
                 },
                 Err(err) => {
-                    self.layout.lock().footer_layout.set_value(ERR_FETCHING_OFFSET);
+                    self.layout.lock().footer_layout.show_error(ERR_FETCHING_OFFSET);
                     error!("error fetching offset for timestamp {}: {}", _timestamp, err);
                     return;
                 }
@@ -639,7 +639,7 @@ where T: ClientContext + ConsumerContext {
         let selected_partition = match self.get_selected_item_for_list(PARTITIONS_LIST) {
             Some(p) => p,
             None => {
-                self.layout.lock().footer_layout.set_value(ERR_NO_SELECTED_PARTITION);
+                self.layout.lock().footer_layout.show_error(ERR_NO_SELECTED_PARTITION);
                 error!("no partition selected to seek");
                 return;
             }
