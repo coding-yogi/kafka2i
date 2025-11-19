@@ -433,7 +433,6 @@ where T: ClientContext + ConsumerContext {
                 // set offset to the end based on HWM
                 offset = high_watermark - 1;
             } else if  offset < low_watermark || offset >= high_watermark {
-                self.layout.lock().footer_layout.show_error(ERR_INVALID_OFFSET);
                 self.log_error_and_update(format!("invalid offset {}, should be between {} and {}", offset, low_watermark, high_watermark));
                 return;
             }
@@ -639,8 +638,7 @@ where T: ClientContext + ConsumerContext {
         let selected_partition = match self.get_selected_item_for_list(PARTITIONS_LIST) {
             Some(p) => p,
             None => {
-                self.layout.lock().footer_layout.show_error(ERR_NO_SELECTED_PARTITION);
-                error!("no partition selected to seek");
+                // if no partition is selected, return
                 return;
             }
         };
