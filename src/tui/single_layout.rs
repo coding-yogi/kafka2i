@@ -16,6 +16,8 @@ pub const CONSUMER_GROUPS_LIST: &str = "Consumer Groups";
 pub const TOPICS_LIST: &str = "Topics";
 pub const PARTITIONS_LIST: &str = "Partitions";
 
+const REPLACEMENT: &str = "\u{FFFD}";
+
 // Top level application layout
 pub struct AppLayout<'a> {
     pub header_layout: HeaderLayout<'a>,
@@ -410,7 +412,15 @@ impl <'a> DetailsLayout<'a> {
                             Ok(contents) => {
                                 self.file_contents = contents;
                                 self.payload.set_title("Payload (immutable)".to_string());
-                                self.payload.update_text(String::from_utf8_lossy(&self.file_contents).to_string());
+
+                                // If content is not normal string, show the file size and path of the file selected
+                                let mut file_contents  = String::from_utf8_lossy(&self.file_contents).to_string();
+                                if file_contents.contains(REPLACEMENT) {
+                                    file_contents = format!("Binary file selected. Size: {} bytes. Path: {}", self.file_contents.len(), file.path().display());
+                                }
+
+                                // Display contents of the file
+                                self.payload.update_text(file_contents);
                                 self.show_file_explorer = false;
                                 *self.edit_mode.lock() = EditMode::Normal;
                             },

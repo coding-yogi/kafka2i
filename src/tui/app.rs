@@ -534,7 +534,7 @@ where T: ClientContext + ConsumerContext {
         let inputs = input.split("!").collect::<Vec<&str>>();
         if inputs.len() < 2 {
             self.layout.lock().footer_layout.show_error(ERR_INVALID_CMD);
-            error!("invalid command {}: command should be of format :<command>!<arg>", input);
+            error!("invalid command {}: command should be of format <command>!<arg>", input);
             return;
         }
 
