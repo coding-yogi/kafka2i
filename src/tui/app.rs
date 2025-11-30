@@ -10,7 +10,9 @@ use strum::{self, Display, EnumString};
 use crate::kafka::consumer::{Consumer, ConsumerError, KafkaMessage};
 use crate::tui::widgets::{AppWidget, Direction};
 
-use super::{single_layout::{AppLayout, BROKERS_LIST, CONSUMER_GROUPS_LIST, PARTITIONS_LIST, TOPICS_LIST}, widgets::InputEvent};
+use super::{layout::{AppLayout, BROKERS_LIST, CONSUMER_GROUPS_LIST, PARTITIONS_LIST, TOPICS_LIST}, widgets::InputEvent};
+
+use std::error::Error;
 
 #[derive(Clone, Debug, Display, Default, PartialEq)]
 pub enum EditMode {
@@ -109,7 +111,6 @@ where T: ClientContext + ConsumerContext
                 edit_mode: edit_mode,
                 offset: UNINITIALISED_OFFSET,
             },
-            //terminal: t,
             kafka_consumer,
             app_event_recv,
             clipboard: match arboard::Clipboard::new() {
@@ -155,6 +156,7 @@ where T: ClientContext + ConsumerContext {
                                     'h' => self.help_window(),
                                     'c' => self.set_app_mode(AppMode::Consumer),
                                     'p' => self.set_app_mode(AppMode::Producer),
+                                    'P' => self.produce_message(),
                                     'f' => self.file_explorer(),
                                     'q' | 'Q' => {
                                         self.state.should_quit = true;
@@ -211,7 +213,6 @@ where T: ClientContext + ConsumerContext {
 // Implementation block to handle all list navigations
 impl <T> App<'_, T>
 where T: ClientContext + ConsumerContext {
-
     // Handles tab event which switches between the available tabs
     fn handle_tab(&mut self, back_tab: bool) {
         self.layout.lock().main_layout.handle_tab(back_tab);
@@ -459,7 +460,7 @@ where T: ClientContext + ConsumerContext {
     }
 
     // Copy message to clipboard
-    fn copy_to_clipboard(&mut self, message: &str) -> Result<(), Box<dyn std::error::Error>> {
+    fn copy_to_clipboard(&mut self, message: &str) -> Result<(), Box<dyn Error>> {
         match &mut self.clipboard {
             Some(cb) => cb.set_text(message.to_string())?,
             None => (),
@@ -513,7 +514,11 @@ where T: ClientContext + ConsumerContext {
             AppMode::Producer => self.layout.lock().main_layout.details_layout.handle_input_event(input_event),
         }
     }
+}
 
+// Handle consumer commands
+impl <T> App<'_, T>
+where T: ClientContext + ConsumerContext {
     // handle input submission
     fn handle_input_submission(&mut self) {
         let input_value = self.layout.lock().footer_layout.input_value();
@@ -552,13 +557,9 @@ where T: ClientContext + ConsumerContext {
            Command::Timestamp => self.handle_timestamp_command(arg),
        }
     }
-}
 
-// Handle all commands
-impl <T> App<'_, T>
-where T: ClientContext + ConsumerContext {
     // Handle offset command
-    pub fn handle_offset_command(&mut self, offset_str: &str)  {
+    fn handle_offset_command(&mut self, offset_str: &str)  {
         //check if offset is a number
         let offset = match offset_str.parse::<i64>() {
             Ok(o) => o,
@@ -582,7 +583,7 @@ where T: ClientContext + ConsumerContext {
     }
 
     // handle timestamp command
-    pub fn handle_timestamp_command(&mut self, timestamp_str: &str)  {
+    fn handle_timestamp_command(&mut self, timestamp_str: &str)  {
         //check if timestamp is a number
         let _timestamp = match timestamp_str.parse::<i64>() {
             Ok(t) => t,
@@ -633,7 +634,7 @@ where T: ClientContext + ConsumerContext {
     }
 
     // Handle offset navigation
-    pub fn handle_offset_navigation(&mut self, direction: Direction){
+    fn handle_offset_navigation(&mut self, direction: Direction){
         // get current offset on the topic
         let selected_partition = match self.get_selected_item_for_list(PARTITIONS_LIST) {
             Some(p) => p,
@@ -656,13 +657,18 @@ where T: ClientContext + ConsumerContext {
         self.fetch_message(&selected_partition, offset);
     }
 
-    pub fn help_window(&mut self) {
+    fn help_window(&mut self) {
        self.layout.lock().toggle_help();
     }
 
+}
+
+// Handle Producer functionality
+impl <T> App<'_, T>
+where T: ClientContext + ConsumerContext {
     // Show/Hide file explorer
     // The mode should be producer and app mode is normal
-    pub fn file_explorer(&mut self) {
+    fn file_explorer(&mut self) {
         // Toggle file explorer only in producer + normal mode
         if *self.state.app_mode.lock() == AppMode::Producer && *self.state.edit_mode.lock() == EditMode::Normal {
             // If toggle displays the file explorer, then set edit mode to insert
@@ -670,6 +676,46 @@ where T: ClientContext + ConsumerContext {
                 *self.state.edit_mode.lock() = EditMode::Insert;
             }
         }
+    }
+
+    fn produce_message(&mut self) {
+        // Collect all details to produce the message
+        let key = self.layout.lock().main_layout.details_layout.key.text();
+        let headers = self.layout.lock().main_layout.details_layout.headers.text();
+        let mut payload = self.layout.lock().main_layout.details_layout.file_content();
+
+        // If payload length is 0 , then the payload is not read from the file
+        // In this case we will use whatever is set in the payload text area
+        if payload.len() == 0 {
+            payload = self.layout.lock().main_layout.details_layout.payload.text().into_bytes();
+        }
+
+        // Validate all details before sending the message
+        let headers = match self.validate_headers(&headers) {
+            Ok(h) => h,
+            Err(err) => {
+                self.layout.lock().main_layout.details_layout.headers.set_error(err.to_string());
+                return;
+            }
+        };
+
+        // send message if all good
+
+
+        // We will reset file_contents from details layout irrespective of whether it was set or not
+    }
+
+    fn validate_headers(&mut self, headers: &str) -> Result<Vec<(String, String)>, Box<dyn Error>> {
+       let headers_map: HashMap<String, String> = match serde_yaml::from_str(headers) {
+            Ok(m) => m,
+            Err(_) => return Err("Failed to parse yaml as map".into())
+       };
+
+       let headers_vec: Vec<(String, String)> = headers_map.iter()
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .collect();
+
+       return Ok(headers_vec);
     }
 }
 

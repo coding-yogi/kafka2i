@@ -1,7 +1,11 @@
-use std::{error::Error, fmt::Display, time::Duration};
+use std::{collections::HashMap, error::Error, fmt::Display, time::Duration};
 use rdkafka::{config::FromClientConfigAndContext, error::KafkaError, message::Header, producer::{FutureProducer, FutureRecord, Partitioner}, util::Timeout, ClientConfig, ClientContext};
 
 pub type Result<T> = std::result::Result<T, ProducerError>;
+
+pub struct MessageHeaders {
+    headers: HashMap<String, String>
+}
 
 #[derive(Debug, Clone)]
 pub struct ProducerError {

@@ -325,7 +325,7 @@ impl <'a> DetailsLayout<'a> {
             metadata: UITable::new(column_headers, column_constraints, data),
             consumed_message: UITextArea::new("Message".to_string()),
             key: UITextArea::new("Key".to_string()),
-            headers: UITextArea::new("Headers".to_string()),
+            headers: UITextArea::new("Headers (yaml)".to_string()),
             payload: UITextArea::new("Payload".to_string()),
             file_explorer: UIFileExplorer::new(),
             show_file_explorer: false,
@@ -374,6 +374,8 @@ impl <'a> DetailsLayout<'a> {
         if self.key.is_focused() {
             self.key.handle_event(event);
         } else if self.headers.is_focused() {
+            // Reset errored state if any
+            self.headers.reset_error();
             self.headers.handle_event(event);
         } else if self.payload.is_focused() {
             if self.show_file_explorer {
@@ -442,6 +444,11 @@ impl <'a> DetailsLayout<'a> {
 
         return fs::read(file.path());
     }
+
+    // Retuns a clone of file content
+    pub fn file_content(&self) -> Vec<u8> {
+        self.file_contents.clone()
+    }
 }
 
 // Footer Layout
@@ -469,6 +476,8 @@ impl <'a> FooterLayout<'a> {
     }
 
     pub fn handle_input_event(&mut self, event: InputEvent) {
+        // Reset errored state if any
+        self.input.reset_error();
         self.input.handle_event(event);
     }
 
@@ -477,7 +486,7 @@ impl <'a> FooterLayout<'a> {
     }
 
     pub fn show_error(&mut self, value: &'a str) {
-        self.input.set_errored(true);
+        self.input.set_error(String::new());
         self.input.update_text(value.to_string());
     }
 
@@ -548,8 +557,6 @@ impl <'a> HelpLayout<'a> {
         frame.render_widget(Clear, area);
         self.help.render(frame, area);
     }
-
-    
 }
 
 // Generate a line for a given help option

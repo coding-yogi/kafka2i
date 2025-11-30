@@ -146,7 +146,7 @@ fn get_list_items(items: Vec<String>) -> Vec<ListItem<'static>> {
 
 fn get_list<'a>(name: String, list_items: Vec<ListItem<'a>>) -> List<'a> {
     List::new(list_items)
-        .block(create_block(NORMAL_COLOR, name, true))
+        .block(create_block(NORMAL_COLOR, name, String::new(), true))
         .highlight_style(Style::default().add_modifier(Modifier::BOLD).fg(HIGHLIGHT_COLOR))
         .highlight_symbol("> ")
 }
@@ -158,12 +158,12 @@ impl <'a> AppWidget for UIList<'a> {
     }
     
     fn highlight_border(&mut self) {
-        self.list = self.list.clone().block(create_block(HIGHLIGHT_COLOR, self.name.clone(), true));
+        self.list = self.list.clone().block(create_block(HIGHLIGHT_COLOR, self.name.clone(), String::new(), true));
         self.focused = true
     }
 
     fn normalise_border(&mut self) {
-        self.list = self.list.clone().block(create_block(NORMAL_COLOR, self.name.clone(), true));
+        self.list = self.list.clone().block(create_block(NORMAL_COLOR, self.name.clone(), String::new(), true));
          self.focused = false
     } 
 }
@@ -181,7 +181,7 @@ impl <'a> UIParagraph<'a> {
         UIParagraph {
             name: name.clone(),
             paragraph: Paragraph::new(text)
-            .block(create_block(NORMAL_COLOR, name, true)),
+            .block(create_block(NORMAL_COLOR, name, String::new(), true)),
             area: Rect::default()
         }
     }
@@ -190,7 +190,7 @@ impl <'a> UIParagraph<'a> {
         UIParagraph {
             name: name.clone(),
             paragraph: Paragraph::new(text)
-            .block(create_block(bg_color, name, true)),
+            .block(create_block(bg_color, name, String::new(),true)),
             area: Rect::default()
         }
     }
@@ -202,7 +202,7 @@ impl <'a> UIParagraph<'a> {
     pub fn update_with_name(&mut self, name: String, text: Text<'a>) {
         self.paragraph = Paragraph::new(text)
             .wrap(Wrap { trim: false })
-            .block(create_block(HIGHLIGHT_COLOR, name, true))
+            .block(create_block(HIGHLIGHT_COLOR, name, String::new(),true))
     }
 }
 
@@ -213,20 +213,20 @@ impl <'a> AppWidget for UIParagraph<'a> {
     }
 
     fn normalise_border(&mut self) {
-        self.paragraph = self.paragraph.clone().block(create_block(NORMAL_COLOR, self.name.clone(), true));
+        self.paragraph = self.paragraph.clone().block(create_block(NORMAL_COLOR, self.name.clone(), String::new(), true));
     }
 
     fn highlight_border(&mut self) {
-        self.paragraph = self.paragraph.clone().block(create_block(HIGHLIGHT_COLOR, self.name.clone(), true));
+        self.paragraph = self.paragraph.clone().block(create_block(HIGHLIGHT_COLOR, self.name.clone(), String::new(), true));
     }
 }
 
-fn create_block<'a>(color: Color, name: String, with_border: bool) -> Block<'a> {
+fn create_block<'a>(color: Color, name: String, footer: String, with_border: bool) -> Block<'a> {
     let block = Block::default();
     if with_border {
         return block.borders(Borders::ALL)
             .border_set(symbols::border::ROUNDED)
-            .border_style(Style::new().fg(color)).title(name);
+            .border_style(Style::new().fg(color)).title(name).title_bottom(footer);
     }
 
     block
@@ -247,12 +247,13 @@ pub struct UITextArea<'a> {
     area: Rect,
     focused: bool,
     errored: bool,
+    error: String,
 }
 
 impl <'a> UITextArea<'a> {
     pub fn new(name: String) -> UITextArea<'a> {
         let mut text_area = TextArea::default();
-        text_area.set_block(create_block(NORMAL_COLOR, name.clone(), true));
+        text_area.set_block(create_block(NORMAL_COLOR, name.clone(), String::new(), true));
         text_area.set_cursor_line_style(Style::default());
         text_area.set_cursor_style(Style::default());
 
@@ -262,6 +263,7 @@ impl <'a> UITextArea<'a> {
             area: Rect::default(),
             focused: false,
             errored: false,
+            error: String::new(),
         }
     }
 
@@ -269,8 +271,23 @@ impl <'a> UITextArea<'a> {
         self.name = title
     }
 
-    pub fn set_errored(&mut self, errored: bool) {
-        self.errored = errored
+    // Set error and update the border
+    pub fn set_error(&mut self, error: String) {
+        self.errored = true;
+        self.error = error;
+        self.normalise_border();
+    }
+
+    // Resetting error also needs resetting borders
+    pub fn reset_error(&mut self) {
+        self.errored = false;
+        self.error = String::new();
+
+        if self.focused {
+            self.highlight_border();
+        } else {
+            self.normalise_border();
+        }
     }
 
     pub fn handle_event(&mut self, event: InputEvent) {
@@ -303,9 +320,9 @@ impl <'a> UITextArea<'a> {
 
         // If the text area was already focused, keep the border highlighting
         if self.focused {
-            self.text_area.set_block(create_block(HIGHLIGHT_COLOR, title, true));
+            self.text_area.set_block(create_block(HIGHLIGHT_COLOR, title, self.error.clone(), true));
         } else {
-            self.text_area.set_block(create_block(NORMAL_COLOR, title, true));
+            self.text_area.set_block(create_block(NORMAL_COLOR, title, self.error.clone(), true));
         }
 
         self.cursor_visibility(false);
@@ -352,14 +369,13 @@ impl <'a> AppWidget for UITextArea<'a> {
             color = ERROR_COLOR
         }
 
-        self.text_area.set_block(create_block(color, self.name.clone(), true));
+        self.text_area.set_block(create_block(color, self.name.clone(), self.error.clone(), true));
         self.text_area.set_cursor_style(Style::default());
     }
 
     fn highlight_border(&mut self) {
         self.focused = true;
-        self.errored = false;
-        self.text_area.set_block(create_block(HIGHLIGHT_COLOR, self.name.clone(), true));
+        self.text_area.set_block(create_block(HIGHLIGHT_COLOR, self.name.clone(), self.error.clone(), true));
     }
 }
 
@@ -389,7 +405,7 @@ impl <'a> UITable<'a> {
         UITable {
             table: Table::new(rows, constraints)
                 .header(Row::new(columns.clone()).bold())
-                .block(create_block(NORMAL_COLOR, "".to_string(), true)),
+                .block(create_block(NORMAL_COLOR, String::new(), String::new(), true)),
             area: Rect::default(),
             state: TableState::default(),
             columns,
@@ -532,10 +548,10 @@ fn file_explorer_base_theme() -> Theme {
 
 fn file_explorer_default_theme() -> Theme {
     file_explorer_base_theme()
-        .with_block(create_block(HIGHLIGHT_COLOR, "Select File".to_string(), true))
+        .with_block(create_block(HIGHLIGHT_COLOR, "Select File".to_string(), String::new(), true))
 }
 
 fn file_explorer_error_theme(text: String) -> Theme {
     file_explorer_base_theme()
-        .with_block(create_block(ERROR_COLOR, text, true))
+        .with_block(create_block(ERROR_COLOR, text, String::new(),true))
 }
